@@ -40,3 +40,12 @@ coverage.xml
 
 # Pytest
 .pytest_cache/
+
+# Session data
+.shellmate/sessions/
+
+# Java installers (not part of project)
+*.exe
+
+# Temporary demo files
+USER_FLOW_DEMO.md
