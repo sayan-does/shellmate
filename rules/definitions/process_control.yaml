@@ -1,0 +1,37 @@
+- id: "kill_9"
+  category: "process_control"
+  severity: "HIGH"
+  description: "Force kill a process (SIGKILL)"
+  program: "kill"
+  flags:
+    - "-9"
+    - "-KILL"
+    - "--signal"
+  message: "Force kills a process without allowing cleanup. Use -15 (SIGTERM) for graceful shutdown."
+  confidence: 0.85
+
+- id: "killall_command"
+  category: "process_control"
+  severity: "MEDIUM"
+  description: "Kill all processes by name"
+  program: "killall"
+  message: "Kills all processes with the given name. Use with caution."
+  confidence: 0.80
+
+- id: "pkill_command"
+  category: "process_control"
+  severity: "MEDIUM"
+  description: "Kill processes by name pattern"
+  program: "pkill"
+  message: "Kills processes matching a pattern. May affect unintended processes."
+  confidence: 0.75
+
+- id: "xargs_kill"
+  category: "process_control"
+  severity: "HIGH"
+  description: "Pipe to xargs kill"
+  program: "xargs"
+  arguments:
+    - "kill"
+  message: "This pattern can mass-kill processes. Verify the process list first."
+  confidence: 0.80

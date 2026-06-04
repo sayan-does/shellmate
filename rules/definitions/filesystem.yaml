@@ -1,0 +1,43 @@
+- id: "mkfs_command"
+  category: "filesystem"
+  severity: "CRITICAL"
+  description: "Create a filesystem (format a partition)"
+  program: "mkfs"
+  message: "This will format the target device, destroying all data on it."
+  confidence: 0.97
+
+- id: "fdisk_write"
+  category: "filesystem"
+  severity: "CRITICAL"
+  description: "Write partition table changes"
+  program: "fdisk"
+  flags:
+    - "-w"
+  message: "Writing partition table changes can destroy data on disk."
+  confidence: 0.95
+
+- id: "dd_command"
+  category: "filesystem"
+  severity: "CRITICAL"
+  description: "Raw disk copy/wipe operation"
+  program: "dd"
+  message: "dd can overwrite disks and partitions directly, potentially destroying data."
+  confidence: 0.95
+
+- id: "parted_mklabel"
+  category: "filesystem"
+  severity: "CRITICAL"
+  description: "Create partition table label"
+  program: "parted"
+  arguments:
+    - "mklabel"
+  message: "Creating a new partition table will destroy existing partitions."
+  confidence: 0.96
+
+- id: "mkswap"
+  category: "filesystem"
+  severity: "HIGH"
+  description: "Set up swap area on device"
+  program: "mkswap"
+  message: "Setting up a swap area on the wrong device can destroy data."
+  confidence: 0.85

@@ -1,0 +1,67 @@
+- id: "dd_of_dev_sda"
+  category: "system_destruction"
+  severity: "CRITICAL"
+  description: "Write directly to disk device"
+  program: "dd"
+  arguments:
+    - "of=/?dev/sd"
+    - "of=/?dev/nvme"
+    - "of=/?dev/vd"
+  message: "Writing directly to a disk device will destroy the partition table and all data."
+  confidence: 0.99
+
+- id: "fork_bomb"
+  category: "system_destruction"
+  severity: "CRITICAL"
+  description: "Fork bomb pattern detected"
+  program: ":(){"
+  message: "This is a fork bomb that will crash your system by exhausting all processes."
+  confidence: 0.99
+
+- id: "reboot_command"
+  category: "system_destruction"
+  severity: "HIGH"
+  description: "System reboot"
+  program: "reboot"
+  message: "This will reboot the system. Ensure all work is saved."
+  confidence: 0.90
+
+- id: "shutdown_now"
+  category: "system_destruction"
+  severity: "HIGH"
+  description: "Immediate system shutdown"
+  program: "shutdown"
+  flags:
+    - "-h"
+    - "-r"
+    - "-P"
+  arguments:
+    - "^now$"
+  message: "This will shut down the system immediately."
+  confidence: 0.90
+
+- id: "poweroff"
+  category: "system_destruction"
+  severity: "HIGH"
+  description: "Power off system"
+  program: "poweroff"
+  message: "This will power off the system."
+  confidence: 0.90
+
+- id: "halt_command"
+  category: "system_destruction"
+  severity: "HIGH"
+  description: "Halt the system"
+  program: "halt"
+  message: "This will halt the system."
+  confidence: 0.85
+
+- id: "passwd_root"
+  category: "system_destruction"
+  severity: "HIGH"
+  description: "Change root password"
+  program: "passwd"
+  arguments:
+    - "^root$"
+  message: "Changing the root password can lock you out of the system if not done carefully."
+  confidence: 0.80

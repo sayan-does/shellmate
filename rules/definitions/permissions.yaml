@@ -1,0 +1,54 @@
+- id: "chmod_recursive_777_root"
+  category: "permissions"
+  severity: "CRITICAL"
+  description: "Recursively set world-writable permissions on root"
+  program: "chmod"
+  flags:
+    - "-R"
+  arguments:
+    - "777"
+    - "^/$"
+  message: "Makes all files world-writable. This is a severe security risk."
+  confidence: 0.98
+
+- id: "chmod_777"
+  category: "permissions"
+  severity: "HIGH"
+  description: "Set world-writable permissions"
+  program: "chmod"
+  arguments:
+    - "777"
+  message: "Makes files world-writable. Consider using more restrictive permissions."
+  confidence: 0.90
+
+- id: "chmod_recursive_777"
+  category: "permissions"
+  severity: "HIGH"
+  description: "Recursively set world-writable permissions"
+  program: "chmod"
+  flags:
+    - "-R"
+  arguments:
+    - "777"
+  message: "Recursively makes files world-writable. This is a security risk."
+  confidence: 0.95
+
+- id: "chown_recursive"
+  category: "permissions"
+  severity: "MEDIUM"
+  description: "Recursively change ownership"
+  program: "chown"
+  flags:
+    - "-R"
+  message: "Recursively changing ownership can affect many files."
+  confidence: 0.75
+
+- id: "chmod_000"
+  category: "permissions"
+  severity: "HIGH"
+  description: "Remove all permissions from files"
+  program: "chmod"
+  arguments:
+    - "000"
+  message: "Removes all permissions, making files inaccessible."
+  confidence: 0.90

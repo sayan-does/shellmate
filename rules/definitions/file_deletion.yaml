@@ -1,0 +1,54 @@
+- id: "rm_force_recursive_root"
+  category: "file_deletion"
+  severity: "CRITICAL"
+  description: "Force recursive delete on root directory"
+  program: "rm"
+  flags:
+    - "-rf"
+    - "-fr"
+  arguments:
+    - "^/$"
+  message: "This will recursively delete all files on the system without confirmation."
+  confidence: 0.98
+
+- id: "rm_force_recursive"
+  category: "file_deletion"
+  severity: "HIGH"
+  description: "Force recursive delete without confirmation"
+  program: "rm"
+  flags:
+    - "-rf"
+    - "-fr"
+  message: "Recursively deletes files without confirmation. Consider using -ri for interactive deletion."
+  confidence: 0.85
+
+- id: "rm_force"
+  category: "file_deletion"
+  severity: "HIGH"
+  description: "Force delete without confirmation"
+  program: "rm"
+  flags:
+    - "-f"
+  message: "Force deletes files without confirmation. Use -i for interactive mode."
+  confidence: 0.80
+
+- id: "shred_command"
+  category: "file_deletion"
+  severity: "HIGH"
+  description: "Secure file deletion with shred"
+  program: "shred"
+  message: "Permanently deletes files making recovery difficult."
+  confidence: 0.90
+
+- id: "rm_rf_var_log"
+  category: "file_deletion"
+  severity: "CRITICAL"
+  description: "Delete critical system log directory"
+  program: "rm"
+  flags:
+    - "-rf"
+    - "-fr"
+  arguments:
+    - "^/var/log"
+  message: "Deleting /var/log will remove all system logs."
+  confidence: 0.95

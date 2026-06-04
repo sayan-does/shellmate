@@ -1,0 +1,7 @@
+include adapters/*.sh
+include adapters/*.zsh
+include adapters/*.ps1
+include rules/definitions/*.yaml
+include config/defaults.py
+include LICENSE
+include README.md

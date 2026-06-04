@@ -1,0 +1,46 @@
+- id: "curl_pipe_bash"
+  category: "network_execution"
+  severity: "HIGH"
+  description: "Pipe curl output to bash (remote code execution)"
+  pipeline: true
+  pattern:
+    - program: "curl"
+    - operator: "pipe"
+    - program: "bash"
+  message: "Piping a remote script directly to bash is a security risk. Review the script before executing."
+  confidence: 0.92
+
+- id: "wget_pipe_sh"
+  category: "network_execution"
+  severity: "HIGH"
+  description: "Pipe wget output to sh (remote code execution)"
+  pipeline: true
+  pattern:
+    - program: "wget"
+    - operator: "pipe"
+    - program: "sh"
+  message: "Piping a remote script directly to sh is a security risk. Review the script before executing."
+  confidence: 0.92
+
+- id: "curl_pipe_sh"
+  category: "network_execution"
+  severity: "HIGH"
+  description: "Pipe curl output to sh (remote code execution)"
+  pipeline: true
+  pattern:
+    - program: "curl"
+    - operator: "pipe"
+    - program: "sh"
+  message: "Piping a remote script directly to sh is a security risk. Review the script before executing."
+  confidence: 0.92
+
+- id: "curl_insecure"
+  category: "network_execution"
+  severity: "MEDIUM"
+  description: "Skip SSL certificate verification"
+  program: "curl"
+  flags:
+    - "-k"
+    - "--insecure"
+  message: "Skipping SSL verification exposes the connection to MITM attacks."
+  confidence: 0.80

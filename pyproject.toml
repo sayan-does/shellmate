@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shellmate"
+version = "0.1.0"
+description = "Intelligent Command Safety Layer for Modern Terminals"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "ShellMate Contributors"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.1.0",
+    "pyyaml>=6.0",
+    "aiohttp>=3.9.0",
+    "faiss-cpu>=1.7.4",
+    "sentence-transformers>=2.2.0",
+    "groq>=0.4.0",
+    "openai>=1.0.0",
+    "numpy>=1.24.0",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/shellmate/shellmate"
+Repository = "https://github.com/shellmate/shellmate"
+Documentation = "https://shellmate.readthedocs.io"
+
+[project.scripts]
+shellmate = "cli.main:cli"
+
+[tool.setuptools.packages.find]
+
+[tool.setuptools.package-data]
+"shellmate" = ["rules/definitions/*.yaml", "adapters/*.sh", "adapters/*.zsh", "adapters/*.ps1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
