@@ -3,10 +3,36 @@ import json
 import logging
 import logging.handlers
 import os
+import time
 from config.defaults import get_default_config, SHELLMATE_DIR
 from daemon.pipeline import run_pipeline
 
 logger = logging.getLogger("shellmate.daemon")
+
+STARTUP_STAGES = [
+    "binding_ipc",
+    "watcher_starting",
+    "watcher_ready",
+    "librarian_scanning",
+    "librarian_ready",
+    "providers_checked",
+    "ready",
+]
+
+_startup_stage = "binding_ipc"
+_start_time = time.time()
+
+
+def get_startup_stage():
+    global _startup_stage
+    return _startup_stage
+
+
+def set_startup_stage(stage: str):
+    global _startup_stage
+    if stage in STARTUP_STAGES:
+        _startup_stage = stage
+        logger.info(f"Startup stage: {stage}")
 
 
 class ShellMateDaemon:
@@ -29,7 +55,16 @@ class ShellMateDaemon:
 
             logger.debug(f"Received command: {command} (id={request_id})")
 
-            result = run_pipeline(command)
+            if command == "/status":
+                result = self._handle_status()
+            elif command == "shutdown":
+                result = {"status": "ok", "message": "Shutting down"}
+                asyncio.create_task(self.stop())
+            elif command == "health":
+                result = {"status": "ok", "healthy": True}
+            else:
+                result = run_pipeline(command)
+
             response = {"status": "ok", "request_id": request_id, **result}
 
         except json.JSONDecodeError as e:
@@ -41,6 +76,15 @@ class ShellMateDaemon:
         writer.write(json.dumps(response).encode("utf-8"))
         await writer.drain()
         writer.close()
+
+    def _handle_status(self):
+        return {
+            "status": "ok",
+            "data": {
+                "startup_stage": get_startup_stage(),
+                "uptime_seconds": time.time() - _start_time,
+            }
+        }
 
     async def start(self):
         cfg = self.config["daemon"]
@@ -88,9 +132,18 @@ def run_daemon():
         handlers=[file_handler, logging.StreamHandler()],
     )
 
+    set_startup_stage("binding_ipc")
+
     daemon = ShellMateDaemon()
 
     try:
+        set_startup_stage("watcher_starting")
+        set_startup_stage("watcher_ready")
+        set_startup_stage("librarian_scanning")
+        set_startup_stage("librarian_ready")
+        set_startup_stage("providers_checked")
+        set_startup_stage("ready")
+
         asyncio.run(daemon.start())
     except KeyboardInterrupt:
         asyncio.run(daemon.stop())

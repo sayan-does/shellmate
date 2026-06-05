@@ -39,7 +39,7 @@ class ShellMateClient:
         except asyncio.TimeoutError:
             return {"status": "error", "error": "Connection timed out. Is the daemon running?"}
         except ConnectionRefusedError:
-            return {"status": "error", "error": "Connection refused. Run 'shellmate enable' first."}
+            return {"status": "error", "error": "Connection refused. Run 'sm enable' first."}
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
@@ -54,6 +54,21 @@ def analyze_command(command):
         asyncio.set_event_loop(loop)
         try:
             result = loop.run_until_complete(client.send_command(command))
+            return result
+        finally:
+            loop.close()
+
+
+def send_status():
+    client = ShellMateClient()
+    try:
+        result = asyncio.run(client.send_command("/status"))
+        return result
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(client.send_command("/status"))
             return result
         finally:
             loop.close()

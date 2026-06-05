@@ -1,11 +1,10 @@
 """
-End-to-End User Flow Test for ShellMate
+End-to-End User Flow Test for ShellMate v2.0
 
 This test simulates a typical user workflow:
 1. Check status
-2. Analyze a command
+2. Analyze a command with -a flag
 3. View configuration
-4. Check provider status
 """
 
 import pytest
@@ -18,162 +17,96 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
+def run_cli(*args, timeout=30):
+    """Helper to run CLI commands"""
+    return subprocess.run(
+        [sys.executable, "-m", "cli.main", *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout
+    )
+
+
 class TestUserFlow:
     """Test complete user workflow scenarios"""
 
+    @classmethod
+    def setup_class(cls):
+        """Enable daemon before tests"""
+        run_cli("enable", timeout=30)
+        import time
+        time.sleep(2)  # Wait for daemon to fully start
+        # Warm up the model by making a simple request
+        run_cli("-a", "echo hello", timeout=60)
+
+    @classmethod
+    def teardown_class(cls):
+        """Disable daemon after tests"""
+        run_cli("disable", timeout=10)
+
     def test_cli_available(self):
         """Test that the CLI is accessible"""
-        result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "--help"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
+        result = run_cli("--help", timeout=10)
         assert result.returncode == 0
         assert "ShellMate" in result.stdout
         assert "Intelligent Command Safety Layer" in result.stdout
 
     def test_status_command(self):
-        """Test status command returns valid JSON"""
-        result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "status"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        # Status may fail if daemon not running, but should return valid JSON
-        if result.returncode == 0:
-            try:
-                status_data = json.loads(result.stdout)
-                assert isinstance(status_data, dict)
-                assert "providers" in status_data
-            except json.JSONDecodeError:
-                pytest.fail(f"Status command did not return valid JSON: {result.stdout}")
-
-    def test_doctor_command(self):
-        """Test doctor command detects environment"""
-        result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "doctor"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
+        """Test status command runs without error"""
+        result = run_cli("status", timeout=10)
         assert result.returncode == 0
-        
-        # Should return valid JSON with environment details
-        try:
-            env_data = json.loads(result.stdout)
-            assert isinstance(env_data, dict)
-            assert "os" in env_data
-            assert "shell" in env_data
-        except json.JSONDecodeError:
-            pytest.fail(f"Doctor command did not return valid JSON: {result.stdout}")
+        assert "Daemon:" in result.stdout
+        assert "Providers" in result.stdout
 
-    def test_config_view_command(self):
+    def test_config_command(self):
         """Test config command displays configuration"""
-        result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "config"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
+        result = run_cli("config", timeout=10)
         assert result.returncode == 0
-        
-        # Should return valid JSON with credentials and settings
-        try:
-            config_data = json.loads(result.stdout)
-            assert isinstance(config_data, dict)
-            assert "credentials" in config_data
-            assert "settings" in config_data
-        except json.JSONDecodeError:
-            pytest.fail(f"Config command did not return valid JSON: {result.stdout}")
-
-    def test_providers_command(self):
-        """Test providers command lists AI providers"""
-        result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "providers"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        assert result.returncode == 0
-        
-        # Should return valid JSON with provider status
-        try:
-            provider_data = json.loads(result.stdout)
-            assert isinstance(provider_data, dict)
-        except json.JSONDecodeError:
-            pytest.fail(f"Providers command did not return valid JSON: {result.stdout}")
+        assert "ShellMate Configuration" in result.stdout
+        assert "Credentials" in result.stdout
+        assert "Settings" in result.stdout
 
     def test_analyze_safe_command(self):
-        """Test analyzing a safe command"""
-        result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "analyze", "ls -la"],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        # Analyze might fail without API keys, but should not crash
-        assert result.returncode in [0, 1]  # Allow both success and expected failure
+        """Test analyzing a safe command with -a flag"""
+        result = run_cli("-a", "echo hello", timeout=30)
+        assert result.returncode == 0
+        assert "SAFE" in result.stdout or "LOW" in result.stdout
 
     def test_analyze_dangerous_command(self):
-        """Test analyzing a dangerous command"""
-        result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "analyze", "rm -rf /"],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        # Should detect danger even without AI (rule engine should catch it)
-        assert result.returncode in [0, 1]  # Allow both success and expected failure
-        # Check if output contains risk indicators
-        output = result.stdout + result.stderr
-        assert len(output) > 0  # Should produce some output
+        """Test analyzing a dangerous command with -a flag"""
+        result = run_cli("-a", "rm -rf /", timeout=30)
+        assert result.returncode == 0
+        assert "CRITICAL" in result.stdout or "HIGH" in result.stdout
 
-    def test_complete_workflow(self):
-        """Test a complete user workflow from start to finish"""
-        # Step 1: Check environment
-        doctor_result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "doctor"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        assert doctor_result.returncode == 0
-        
-        # Step 2: View configuration
-        config_result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "config"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        assert config_result.returncode == 0
-        
-        # Step 3: Check provider status
-        provider_result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "providers"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        assert provider_result.returncode == 0
-        
-        # Step 4: Analyze a command
-        analyze_result = subprocess.run(
-            [sys.executable, "-m", "cli.main", "analyze", "echo 'Hello World'"],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        # May fail without API keys, but should not crash
-        assert analyze_result.returncode in [0, 1]
-        
-        print("\n=== Complete User Flow Test Summary ===")
-        print(f"✓ Environment detection: {'PASS' if doctor_result.returncode == 0 else 'FAIL'}")
-        print(f"✓ Configuration view: {'PASS' if config_result.returncode == 0 else 'FAIL'}")
-        print(f"✓ Provider status: {'PASS' if provider_result.returncode == 0 else 'FAIL'}")
-        print(f"✓ Command analysis: {'PASS' if analyze_result.returncode in [0, 1] else 'FAIL'}")
+    def test_analyze_with_quotes(self):
+        """Test analyzing command with quotes"""
+        result = run_cli("-a", "git", "commit", "-m", "\"test message\"", timeout=30)
+        assert result.returncode == 0
+
+    def test_analyze_with_pipe(self):
+        """Test analyzing command with pipe"""
+        result = run_cli("-a", "curl", "example.com", "|", "bash", timeout=30)
+        assert result.returncode == 0
+        assert "HIGH" in result.stdout or "CRITICAL" in result.stdout
+
+    def test_invalid_command_error(self):
+        """Test invalid command shows helpful error"""
+        result = run_cli("invalid", timeout=10)
+        assert result.returncode == 2  # USAGE_ERROR
+        assert "Unknown command" in result.stdout
+        assert "Suggestion" in result.stdout
+
+    def test_missing_analyze_command_error(self):
+        """Test -a without command shows error"""
+        result = run_cli("-a", timeout=10)
+        assert result.returncode == 2  # USAGE_ERROR
+        assert "Missing command after -a" in result.stdout
+
+    def test_version_flag(self):
+        """Test --version flag"""
+        result = run_cli("--version", timeout=10)
+        assert result.returncode == 0
+        assert "2.0.0" in result.stdout
 
 
 if __name__ == "__main__":

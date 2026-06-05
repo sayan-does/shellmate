@@ -1,6 +1,11 @@
-# ShellMate
+# ShellMate v2.0
 
 Intelligent Command Safety Layer for Modern Terminals.
+
+## Documentation
+
+- **Requirements & Design**: [docs/shellmate-v2-requirements-design.md](docs/shellmate-v2-requirements-design.md)
+- **Implementation Tasks**: [docs/v2-implementation-tasks.md](docs/v2-implementation-tasks.md)
 
 ## Installation
 
@@ -8,43 +13,41 @@ Intelligent Command Safety Layer for Modern Terminals.
 pip install shellmate
 ```
 
-## Quick Start
+## Quick Start (v2 CLI)
 
 ```bash
-# Install shell hooks
-shellmate install
+# Enable the daemon for current directory
+sm enable
 
-# Enable the daemon
-shellmate enable
+# Analyze a command (no quotes needed)
+sm -a rm -rf /
 
-# Analyze a command
-shellmate analyze "rm -rf /"
+# Check daemon status
+sm status
 
-# Check status
-shellmate status
+# Configure providers
+sm config
 
-# Run diagnostics
-shellmate doctor
+# Disable daemon
+sm disable
 ```
 
-## Features
+## Features (v2 MVP Scope)
 
-- **Environment Detection** - Detects OS, shell, terminal, and execution environment
-- **Sanitizer** - Catches typos, trailing characters, duplicate flags, syntax errors
-- **Parser** - Parses commands into structured objects for analysis
-- **Rule Engine** - 30+ built-in rules detecting dangerous command patterns
-- **Semantic Cache** - FAISS-powered cache for fast repeated analysis
-- **AI Risk Analysis** - Groq-powered risk classification
-- **AI Remediation** - OpenRouter-powered safer alternatives
-- **Documentation Intelligence** - Context7-powered documentation lookup
-- **Terminal Adapters** - Bash, Zsh, and PowerShell hooks
-- **Plugin System** - Extensible plugin architecture
+- **Simple CLI**: `sm -a <command>` analyzes commands without quotes
+- **Daemon-backed**: Single-user background daemon for command analysis
+- **Context-aware**: Watcher (environment, tech stack, git) + Librarian (file index) agents
+- **Rich terminal output**: Startup progress, status, errors, analysis results
+- **Cross-platform**: Windows, Linux, macOS
+- **Graceful degradation**: Works when agents, providers, file watching, or git detection fail
+- **Shell adapters**: Bash, zsh, PowerShell hooks calling `sm -a <command>`
+- **Deterministic fallback**: Provider outages fall back to rule-based output
 
 ## Requirements
 
-- Python 3.10+
-- Groq API key (for risk analysis)
-- OpenRouter API key (for remediation)
+- Python 3.8+
+- Groq API key (for AI risk analysis)
+- OpenRouter API key (for AI remediation)
 
 ## License
 
