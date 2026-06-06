@@ -159,8 +159,14 @@ def run_daemon():
         set_startup_stage("ready")
 
         try:
+            logger.info("Starting daemon server...")
             await daemon.start()
+            logger.info("Daemon server stopped")
         except KeyboardInterrupt:
+            logger.info("Keyboard interrupt received")
             await daemon.stop()
+        except Exception as e:
+            logger.error(f"Daemon error: {e}", exc_info=True)
+            raise
 
     asyncio.run(main())

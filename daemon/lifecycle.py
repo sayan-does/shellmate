@@ -3,22 +3,33 @@ import signal
 import subprocess
 import sys
 import time
-import json
-from config.defaults import get_default_config, SHELLMATE_DIR
-
-PID_FILE = os.path.join(SHELLMATE_DIR, "shellmate.pid")
+from config.defaults import get_default_config
+from daemon.session import (
+    create_session, read_session, remove_session,
+    cleanup_stale_sessions, validate_session_ownership,
+    get_session_dir_path, is_process_alive
+)
 
 
 def start_daemon():
-    if os.path.exists(PID_FILE):
-        pid = read_pid()
-        if pid and is_process_running(pid):
+    cleanup_stale_sessions()
+
+    session = read_session()
+    if session and is_process_alive(session.get("pid", 0)):
+        if validate_session_ownership(session):
             print("ShellMate daemon is already running.")
             return
+        else:
+            print("Stale session from different user, cleaning up.")
+            remove_session()
 
-    os.makedirs(SHELLMATE_DIR, exist_ok=True)
+    session_dir = get_session_dir_path()
+    session_dir.mkdir(parents=True, exist_ok=True)
 
-    daemon_script = os.path.join(os.path.dirname(__file__), "server.py")
+    config = get_default_config()
+    host = config["daemon"]["host"]
+    port = config["daemon"]["port"]
+    ipc_address = f"{host}:{port}"
 
     if sys.platform == "win32":
         startupinfo = subprocess.STARTUPINFO()
@@ -38,15 +49,17 @@ def start_daemon():
             start_new_session=True,
         )
 
-    with open(PID_FILE, "w") as f:
-        f.write(str(process.pid))
+    cwd = os.getcwd()
+    create_session(process.pid, cwd, ipc_address)
 
     time.sleep(0.5)
     print(f"ShellMate daemon started (PID: {process.pid})")
 
 
 def stop_daemon():
-    pid = read_pid()
+    session = read_session()
+    pid = session.get("pid") if session else None
+
     if not pid:
         print("ShellMate daemon is not running.")
         return
@@ -63,18 +76,20 @@ def stop_daemon():
     except (ProcessLookupError, PermissionError):
         pass
 
-    if os.path.exists(PID_FILE):
-        os.remove(PID_FILE)
-
+    remove_session()
     print("ShellMate daemon stopped.")
 
 
 def check_daemon_status():
-    pid = read_pid()
-    if pid and is_process_running(pid):
+    session = read_session()
+    if session and is_process_alive(session.get("pid", 0)):
         return {
             "status": "running",
-            "pid": pid,
+            "pid": session.get("pid"),
+            "cwd": session.get("cwd"),
+            "created": session.get("created"),
+            "ipc_address": session.get("ipc_address"),
+            "owner": session.get("owner"),
         }
     return {
         "status": "stopped",
@@ -82,36 +97,10 @@ def check_daemon_status():
     }
 
 
-def read_pid():
-    if not os.path.exists(PID_FILE):
-        return None
-    try:
-        with open(PID_FILE) as f:
-            return int(f.read().strip())
-    except (ValueError, OSError):
-        return None
-
-
-def is_process_running(pid):
-    if sys.platform == "win32":
-        try:
-            result = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {pid}"],
-                capture_output=True, text=True, timeout=5
-            )
-            return str(pid) in result.stdout
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            return False
-    else:
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            return False
-
-
 def tail_logs():
-    log_dir = os.path.join(SHELLMATE_DIR, "logs")
+    from config.defaults import get_default_config
+    config = get_default_config()
+    log_dir = config["logging"]["directory"]
     log_file = os.path.join(log_dir, "daemon.log")
     if not os.path.exists(log_file):
         print("No logs found.")

@@ -51,15 +51,15 @@ Priority key: P0 = required for MVP, P1 = important polish, P2 = explicitly post
 
 *Refs: FR-2 (Daemon Lifecycle), FR-3 (Session Management), Arch (Startup/Shutdown flow), NFR-Reliability (stale cleanup, graceful shutdown), AC-1, AC-7*
 
-- [ ] Implement `daemon/session.py` session creation, lookup, stale cleanup, and removal.
-- [ ] Write `session.json` atomically with PID, cwd, created time, owner, and IPC address.
-- [ ] Validate process liveness cross-platform with `psutil` or safe OS fallback.
-- [ ] Enforce restrictive session permissions on Unix and best-effort user-only permissions on Windows.
-- [ ] Implement daemon process start/stop in `daemon/lifecycle.py` or existing lifecycle code.
-- [ ] Bind local IPC before long-running agent startup.
-- [ ] Write session metadata only after IPC is ready.
-- [ ] Implement graceful shutdown with timeout and clear failure reporting.
-- [ ] Add lifecycle tests for enable, disable, stale session cleanup, startup timeout, and port/socket collision.
+- [x] Implement `daemon/session.py` session creation, lookup, stale cleanup, and removal.
+- [x] Write `session.json` atomically with PID, cwd, created time, owner, and IPC address.
+- [x] Validate process liveness cross-platform with `psutil` or safe OS fallback.
+- [x] Enforce restrictive session permissions on Unix and best-effort user-only permissions on Windows.
+- [x] Implement daemon process start/stop in `daemon/lifecycle.py` or existing lifecycle code.
+- [x] Bind local IPC before long-running agent startup.
+- [x] Write session metadata only after IPC is ready.
+- [x] Implement graceful shutdown with timeout and clear failure reporting.
+- [x] Add lifecycle tests for enable, disable, stale session cleanup, startup timeout, and port/socket collision.
 
 ## Phase 4 - IPC Server And Client (P0)
 
