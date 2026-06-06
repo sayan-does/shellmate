@@ -1,7 +1,7 @@
 import os
 import json
 from typing import Optional
-from groq import Groq
+from groq import AsyncGroq
 from .base import AIProvider, ProviderError
 
 
@@ -15,9 +15,9 @@ class GroqProvider(AIProvider):
         if not self.api_key:
             raise ProviderError("GROQ_API_KEY environment variable not set", "groq")
         if self.client is None:
-            self.client = Groq(api_key=self.api_key)
+            self.client = AsyncGroq(api_key=self.api_key)
 
-    def analyze_risk(self, command: str, context: Optional[dict] = None) -> dict:
+    async def analyze_risk(self, command: str, context: Optional[dict] = None) -> dict:
         self._ensure_client()
 
         prompt = (
@@ -28,7 +28,7 @@ class GroqProvider(AIProvider):
         )
 
         try:
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
@@ -52,7 +52,7 @@ class GroqProvider(AIProvider):
         except Exception as e:
             raise ProviderError(str(e), "groq")
 
-    def generate_remediation(self, command: str, risk: dict, context: Optional[dict] = None) -> dict:
+    async def generate_remediation(self, command: str, risk: dict, context: Optional[dict] = None) -> dict:
         raise NotImplementedError("Groq provider only handles risk analysis")
 
     def is_available(self) -> bool:

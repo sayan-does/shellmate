@@ -1,5 +1,6 @@
 import sys
 import os
+import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from providers.base import AIProvider, ProviderError
@@ -27,12 +28,13 @@ class TestGroqProvider:
         provider = GroqProvider()
         assert provider.is_available() is False
 
-    def test_not_configured_raises_error(self):
+    @pytest.mark.asyncio
+    async def test_not_configured_raises_error(self):
         if "GROQ_API_KEY" in os.environ:
             del os.environ["GROQ_API_KEY"]
         provider = GroqProvider()
         try:
-            provider.analyze_risk("test")
+            await provider.analyze_risk("test")
             assert False, "Should have raised ProviderError"
         except ProviderError as e:
             assert "GROQ_API_KEY" in str(e)
@@ -73,14 +75,16 @@ class TestRouter:
         assert "openrouter" in status
         assert status["groq"]["configured"] is groq_configured
 
-    def test_fallback_risk_analysis(self):
-        result = analyze_risk("echo hello")
+    @pytest.mark.asyncio
+    async def test_fallback_risk_analysis(self):
+        result = await analyze_risk("echo hello")
         assert result["provider"] == "fallback"
         assert "risk" in result
         assert "confidence" in result
 
-    def test_fallback_remediation(self):
+    @pytest.mark.asyncio
+    async def test_fallback_remediation(self):
         risk = {"risk": "HIGH", "message": "Test risk", "confidence": 0.9}
-        result = generate_remediation("rm -rf /", risk)
+        result = await generate_remediation("rm -rf /", risk)
         assert "explanation" in result
         assert "alternatives" in result

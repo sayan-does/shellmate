@@ -31,10 +31,10 @@ def get_openrouter_provider():
     return _openrouter_provider
 
 
-def analyze_risk(command, context=None):
+async def analyze_risk(command, context=None):
     groq = get_groq_provider()
     try:
-        return groq.analyze_risk(command, context)
+        return await groq.analyze_risk(command, context)
     except ProviderError as e:
         return {
             "risk": "MEDIUM",
@@ -45,10 +45,10 @@ def analyze_risk(command, context=None):
         }
 
 
-def generate_remediation(command, risk, context=None):
+async def generate_remediation(command, risk, context=None):
     openrouter = get_openrouter_provider()
     try:
-        return openrouter.generate_remediation(command, risk, context)
+        return await openrouter.generate_remediation(command, risk, context)
     except ProviderError as e:
         return {
             "explanation": risk.get("message", risk.get("reason", "Command may be dangerous.")),

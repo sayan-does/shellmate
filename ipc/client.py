@@ -8,7 +8,7 @@ class ShellMateClient:
     def __init__(self):
         self.config = get_default_config()
 
-    async def send_command(self, command, timeout=10.0):
+    async def send_command(self, command, timeout=60.0):
         cfg = self.config["daemon"]
         host = cfg["host"]
         port = cfg["port"]

@@ -1,3 +1,4 @@
+import asyncio
 import time
 import logging
 from parser.command_parser import parse_command
@@ -5,7 +6,7 @@ from sanitizer.typo_detector import sanitize
 from rules.engine import load_rules, match_rule
 from cache.semantic_cache import cache_lookup, cache_store
 from providers.router import analyze_risk, generate_remediation
-from documentation.context7_client import retrieve_documentation, should_retrieve_documentation
+from documentation.context7_client import retrieve_documentation_async, should_retrieve_documentation
 from config.defaults import get_default_config
 
 logger = logging.getLogger("shellmate.pipeline")
@@ -20,7 +21,7 @@ def _get_rules():
     return _rules
 
 
-def run_pipeline(command):
+async def run_pipeline_async(command):
     stages = {}
     start_time = time.time()
 
@@ -89,7 +90,7 @@ def run_pipeline(command):
         )
 
     risk_start = time.time()
-    risk_result = analyze_risk(sanitize_result["normalized"])
+    risk_result = await analyze_risk(sanitize_result["normalized"])
     stages["risk_agent"] = time.time() - risk_start
 
     if risk_result.get("provider") != "fallback":
@@ -99,11 +100,11 @@ def run_pipeline(command):
     if isinstance(parsed, dict):
         doc_start = time.time()
         if should_retrieve_documentation(parsed, risk_result):
-            doc_result = retrieve_documentation(parsed, risk_result)
+            doc_result = await retrieve_documentation_async(parsed, risk_result)
         stages["documentation"] = time.time() - doc_start
 
     rem_start = time.time()
-    remediation_result = generate_remediation(
+    remediation_result = await generate_remediation(
         sanitize_result["normalized"],
         risk_result,
         {"documentation": doc_result} if doc_result else None,
@@ -128,6 +129,23 @@ def run_pipeline(command):
         risk_analysis=risk_result,
         stages=stages,
     )
+
+
+def run_pipeline(command):
+    """Synchronous wrapper for backward compatibility."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    
+    if loop and loop.is_running():
+        # We're in an async context, run as a task
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(asyncio.run, run_pipeline_async(command))
+            return future.result()
+    else:
+        return asyncio.run(run_pipeline_async(command))
 
 
 RISK_ORDER = {"SAFE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}

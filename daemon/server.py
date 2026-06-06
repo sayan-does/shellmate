@@ -6,6 +6,8 @@ import os
 import time
 from config.defaults import get_default_config, SHELLMATE_DIR
 from daemon.pipeline import run_pipeline
+from cache.semantic_cache import preload_embedder_async
+from daemon.pipeline import run_pipeline_async
 
 logger = logging.getLogger("shellmate.daemon")
 
@@ -59,11 +61,17 @@ class ShellMateDaemon:
                 result = self._handle_status()
             elif command == "shutdown":
                 result = {"status": "ok", "message": "Shutting down"}
-                asyncio.create_task(self.stop())
+                asyncio.create_task(self._shutdown())
             elif command == "health":
                 result = {"status": "ok", "healthy": True}
             else:
-                result = run_pipeline(command)
+                logger.info(f"Processing command: {command[:50]}")
+                try:
+                    result = await run_pipeline_async(command)
+                    logger.info(f"Pipeline completed for: {command[:50]}")
+                except Exception as e:
+                    logger.error(f"Pipeline error: {e}", exc_info=True)
+                    raise
 
             response = {"status": "ok", "request_id": request_id, **result}
 
@@ -109,6 +117,9 @@ class ShellMateDaemon:
             await self.server.wait_closed()
         logger.info("Daemon stopped")
 
+    async def _shutdown(self):
+        await self.stop()
+
     @property
     def is_running(self):
         return self._running
@@ -136,14 +147,20 @@ def run_daemon():
 
     daemon = ShellMateDaemon()
 
-    try:
+    async def main():
         set_startup_stage("watcher_starting")
         set_startup_stage("watcher_ready")
+
+        # Preload embedding model in background
+        preload_embedder_async()
         set_startup_stage("librarian_scanning")
         set_startup_stage("librarian_ready")
         set_startup_stage("providers_checked")
         set_startup_stage("ready")
 
-        asyncio.run(daemon.start())
-    except KeyboardInterrupt:
-        asyncio.run(daemon.stop())
+        try:
+            await daemon.start()
+        except KeyboardInterrupt:
+            await daemon.stop()
+
+    asyncio.run(main())

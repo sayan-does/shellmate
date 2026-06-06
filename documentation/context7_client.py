@@ -1,5 +1,6 @@
 import os
 import asyncio
+import aiohttp
 from typing import Optional
 
 DYNAMIC_TOOL_REGISTRY = {
@@ -113,13 +114,19 @@ async def retrieve_documentation_async(parsed_command, risk_result):
     return await client.retrieve_documentation(program, query)
 
 
+# Synchronous wrapper removed - use retrieve_documentation_async directly in async context
+# This function is kept for backward compatibility with non-async callers
 def retrieve_documentation(parsed_command, risk_result):
     try:
-        return asyncio.run(retrieve_documentation_async(parsed_command, risk_result))
+        loop = asyncio.get_running_loop()
     except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(retrieve_documentation_async(parsed_command, risk_result))
-        finally:
-            loop.close()
+        loop = None
+    
+    if loop and loop.is_running():
+        # In async context, create a task
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(asyncio.run, retrieve_documentation_async(parsed_command, risk_result))
+            return future.result()
+    else:
+        return asyncio.run(retrieve_documentation_async(parsed_command, risk_result))

@@ -1,6 +1,7 @@
 import os
+from config.paths import get_cache_dir, get_log_dir, get_session_dir, get_state_dir
 
-SHELLMATE_DIR = os.path.expanduser("~/.shellmate")
+SHELLMATE_DIR = str(get_state_dir())
 
 
 def get_default_config():
@@ -8,7 +9,7 @@ def get_default_config():
         "daemon": {
             "host": "127.0.0.1",
             "port": 9823,
-            "socket_path": os.path.join(SHELLMATE_DIR, "shellmate.sock"),
+            "socket_path": str(get_session_dir() / "shellmate.sock"),
             "pipe_name": r"\\.\pipe\shellmate",
         },
         "cache": {
@@ -18,7 +19,7 @@ def get_default_config():
             "similarity_threshold": 0.92,
             "expiration_days": 30,
             "max_entries": 10000,
-            "directory": os.path.join(SHELLMATE_DIR, "cache"),
+            "directory": str(get_cache_dir()),
         },
         "providers": {
             "risk_analysis": {
@@ -42,14 +43,14 @@ def get_default_config():
         },
         "logging": {
             "level": "INFO",
-            "directory": os.path.join(SHELLMATE_DIR, "logs"),
+            "directory": str(get_log_dir()),
             "max_bytes": 10485760,
             "backup_count": 5,
         },
         "plugins": {
-            "directory": os.path.join(SHELLMATE_DIR, "plugins"),
+            "directory": str(get_session_dir() / "plugins"),
             "enabled": True,
         },
-        "overrides_file": os.path.join(SHELLMATE_DIR, "overrides.json"),
-        "metrics_file": os.path.join(SHELLMATE_DIR, "metrics.json"),
+        "overrides_file": str(get_session_dir() / "overrides.json"),
+        "metrics_file": str(get_session_dir() / "metrics.json"),
     }

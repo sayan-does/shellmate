@@ -1,7 +1,7 @@
 import os
 import json
 from typing import Optional
-from openai import OpenAI
+from openai import AsyncOpenAI
 from .base import AIProvider, ProviderError
 
 
@@ -20,15 +20,15 @@ class OpenRouterProvider(AIProvider):
         if not self.api_key:
             raise ProviderError("OPENROUTER_API_KEY environment variable not set", "openrouter")
         if self.client is None:
-            self.client = OpenAI(
+            self.client = AsyncOpenAI(
                 base_url=self.base_url,
                 api_key=self.api_key,
             )
 
-    def analyze_risk(self, command: str, context: Optional[dict] = None) -> dict:
+    async def analyze_risk(self, command: str, context: Optional[dict] = None) -> dict:
         raise NotImplementedError("OpenRouter provider only handles remediation")
 
-    def generate_remediation(self, command: str, risk: dict, context: Optional[dict] = None) -> dict:
+    async def generate_remediation(self, command: str, risk: dict, context: Optional[dict] = None) -> dict:
         self._ensure_client()
 
         risk_level = risk.get("risk", risk.get("severity", "UNKNOWN"))
@@ -50,7 +50,7 @@ class OpenRouterProvider(AIProvider):
 
         for model in models_to_try:
             try:
-                response = self.client.chat.completions.create(
+                response = await self.client.chat.completions.create(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,

@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import threading
 from datetime import datetime, timedelta
 from config.defaults import get_default_config, SHELLMATE_DIR
 
@@ -11,6 +12,8 @@ CACHE_META_FILE = os.path.join(CACHE_DIR, "metadata.json")
 _embedder = None
 _index = None
 _metadata = []
+_embedder_loading = False
+_embedder_ready = threading.Event()
 
 
 def _get_embedder():
@@ -21,9 +24,27 @@ def _get_embedder():
             config = get_default_config()
             model_name = config["cache"]["model"]
             _embedder = SentenceTransformer(model_name)
+            _embedder_ready.set()
         except Exception as e:
+            _embedder_ready.set()
             raise RuntimeError(f"Failed to load embedding model: {e}")
     return _embedder
+
+
+def preload_embedder_async():
+    """Start loading the embedding model in a background thread."""
+    global _embedder_loading
+    if _embedder is not None or _embedder_loading:
+        return
+    _embedder_loading = True
+    thread = threading.Thread(target=_get_embedder, daemon=True)
+    thread.start()
+    return thread
+
+
+def wait_for_embedder(timeout=60):
+    """Wait for the embedder to be ready."""
+    return _embedder_ready.wait(timeout)
 
 
 def _get_index():
