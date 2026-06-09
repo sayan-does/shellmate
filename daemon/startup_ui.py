@@ -6,8 +6,19 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from rich.table import Table
 
 from ipc.client import ShellMateClient
+from ui.banner import render_enable_panel
 
-console = Console()
+console = Console(width=120)
+
+STAGE_LABELS = [
+    ("binding_ipc", "Binding IPC"),
+    ("watcher_starting", "Starting Watcher"),
+    ("watcher_ready", "Watcher ready"),
+    ("librarian_scanning", "Scanning project files"),
+    ("librarian_ready", "Librarian ready"),
+    ("providers_checked", "Checking providers"),
+    ("ready", "Ready"),
+]
 
 
 def run_startup_ui(timeout: int = 30):
@@ -39,7 +50,7 @@ def run_startup_ui(timeout: int = 30):
         while time.time() - start_time < timeout:
             try:
                 import asyncio
-                result = asyncio.run(client.send_command("status", timeout=2.0))
+                result = asyncio.run(client.send_command("/status", timeout=2.0))
             except Exception:
                 result = None
 
@@ -61,9 +72,10 @@ def run_startup_ui(timeout: int = 30):
             time.sleep(0.5)
 
         if last_stage < len(stages) - 1:
-            console.print("[red]Startup timed out. Daemon may not be ready.[/red]")
+            console.print("[red]Startup timed out. Daemon may not be ready.[/]")
             console.print("Run 'sm status' to check daemon state.")
             return False
 
-    console.print("[green]Daemon ready![/green]")
+    completed_stages = [(label, idx <= last_stage) for idx, (_, label) in enumerate(STAGE_LABELS)]
+    console.print(render_enable_panel(completed_stages))
     return True

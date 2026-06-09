@@ -1,4 +1,6 @@
+import os
 import sys
+import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -17,11 +19,35 @@ from config import (
 console = Console()
 
 
+def _is_interactive():
+    if os.environ.get("SM_NONINTERACTIVE"):
+        return False
+    try:
+        return os.isatty(0)
+    except (OSError, AttributeError):
+        return False
+
+
 def config():
-    if len(sys.argv) > 2 and sys.argv[1] == "config":
-        _config_set(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "")
+    args = [a for a in sys.argv[2:] if a]
+
+    if "--show" in args:
+        _show_config()
         return
 
+    if args and not args[0].startswith("--"):
+        key = args[0].upper()
+        value = args[1] if len(args) > 1 else ""
+        _config_set(key, value)
+        return
+
+    _display_config_table()
+    show_all = "--all" in args
+    if _is_interactive():
+        _interactive_config(show_all)
+
+
+def _display_config_table():
     cfg = get_config()
     creds = get_credential_status()
 
@@ -31,11 +57,14 @@ def config():
     table = Table(title="Credentials")
     table.add_column("Key", style="cyan")
     table.add_column("Configured", style="green")
+    table.add_column("Value", style="yellow")
     table.add_column("Description", style="white")
 
     for key, info in creds.items():
-        desc = CREDENTIAL_KEYS[key]["description"]
-        table.add_row(key, str(info["configured"]), desc)
+        meta = CREDENTIAL_KEYS.get(key, {})
+        desc = meta.get("description", "")
+        value_display = info.get("masked", "") if info["configured"] else "[dim]not set[/dim]"
+        table.add_row(key, str(info["configured"]), value_display, desc)
 
     console.print(table)
     console.print()
@@ -73,6 +102,73 @@ def config():
     console.print()
     console.print("[dim]Use 'sm config <KEY> <VALUE>' to set a credential[/dim]")
     console.print("[dim]Use 'sm config provider <role> <primary> <model>' to set provider[/dim]")
+    console.print("[dim]Use 'sm config --all' to update all credentials (including already-set)[/dim]")
+    console.print("[dim]Use 'sm config --show' to view credential values (masked)[/dim]")
+    console.print("[dim]Run 'sm config' with no args for guided credential setup[/dim]")
+
+
+def _show_config():
+    creds = get_credential_status()
+    console.print("[bold]ShellMate Credentials[/bold]")
+    console.print()
+    for key, info in creds.items():
+        meta = CREDENTIAL_KEYS.get(key, {})
+        label = meta.get("label", key)
+        if info["configured"]:
+            console.print(f"  [cyan]{label}:[/cyan] {info['masked']}")
+        else:
+            console.print(f"  [cyan]{label}:[/cyan] [dim]not set[/dim]")
+    console.print()
+    console.print("[dim]Use 'sm config <KEY> <VALUE>' to set a credential[/dim]")
+    console.print("[dim]Run 'sm config' for guided setup[/dim]")
+
+
+def _interactive_config(show_all: bool = False):
+    env = load_env()
+    changed = False
+
+    for key, meta in CREDENTIAL_KEYS.items():
+        current = env.get(key, "")
+        if current and not show_all:
+            continue
+
+        label = meta.get("label", key)
+        doc_url = meta.get("doc_url", "")
+        description = meta.get("description", "")
+        required = meta.get("required", False)
+
+        console.print()
+        console.print(f"[bold]{label}[/bold]")
+        console.print(f"  {description}")
+        if current:
+            masked = _mask_key_for_prompt(current)
+            console.print(f"  [dim]Current: {masked}[/dim]")
+
+        prompt_text = f"Enter {label}" + (" (leave empty to skip)" if not required else "")
+        value = click.prompt(prompt_text, default="", hide_input=True, show_default=False)
+
+        if value:
+            env[key] = value
+            changed = True
+            console.print(f"  [green]✓ {label} updated[/green]")
+        elif current:
+            console.print(f"  [dim]Keeping existing value[/dim]")
+        else:
+            console.print(f"  [dim]Skipped (not configured)[/dim]")
+
+    if changed:
+        save_env(env)
+        console.print()
+        console.print("[green]Credentials saved![/green]")
+    else:
+        console.print()
+        console.print("[dim]No changes made[/dim]")
+
+
+def _mask_key_for_prompt(key: str) -> str:
+    if len(key) <= 8:
+        return key[:2] + "*" * (len(key) - 4) + key[-2:] if len(key) > 4 else "****"
+    return key[:2] + "*" * (len(key) - 6) + key[-4:]
 
 
 def _config_set(key: str, value: str):

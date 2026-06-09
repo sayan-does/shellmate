@@ -1,51 +1,80 @@
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 *.so
 *.egg-info/
+.eggs/
 dist/
 build/
 *.egg
+*.whl
+pip-wheel-metadata/
+*.manifest
+*.spec
 
-# Virtual environment
+# Virtual environments
 venv/
 .venv/
 env/
 
-# Cache
-~/.shellmate/cache/
-
-# Logs
-~/.shellmate/logs/
-*.log
-
-# Environment
+# Environment files (keep .env.example tracked)
 .env
 .env.local
 
-# IDE
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log
+
+# Secrets & credentials (never commit)
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
+secrets.json
+test_secrets.py
+
+# Local ShellMate runtime data (user config lives outside the repo)
+.shellmate/
+
+# IDE & editor
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+*.code-workspace
+.cursor/
+
+# Personal / internal dev tooling
+.opencode/
+
+# Node (used by some local tooling)
+node_modules/
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
+ehthumbs.db
 
-# Coverage
-.coverage
-htmlcov/
-coverage.xml
+# Repomix / session artifacts
+repomix_pack.txt
 
-# Pytest
-.pytest_cache/
-
-# Session data
-.shellmate/sessions/
-
-# Java installers (not part of project)
-*.exe
-
-# Temporary demo files
+# Temporary demo & scratch files
 USER_FLOW_DEMO.md
+
+# Installers (not part of this project)
+*.exe

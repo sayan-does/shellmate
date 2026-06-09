@@ -39,7 +39,6 @@ class Context7Client:
         timeout = aiohttp.ClientTimeout(total=5)
 
         try:
-            import aiohttp
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 headers = {"Authorization": f"Bearer {self.api_key}"}
                 async with session.get(url, params=params, headers=headers) as resp:

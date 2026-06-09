@@ -190,6 +190,20 @@ class TestSecretsRedaction:
         assert "ghp_1234567890abcdef" not in result
 
 
+class TestSupervisorConfig:
+    def test_default_supervisor_model(self):
+        from config.defaults import get_default_config
+        cfg = get_default_config()
+        assert cfg["supervisor"]["model"] == "llama-3.1-8b-instant"
+        assert cfg["supervisor"]["timeout_ms"] == 500
+
+    def test_supervisor_model_env_override(self, monkeypatch):
+        monkeypatch.setenv("GROQ_SUPERVISOR_MODEL", "llama-3.1-70b-versatile")
+        from config.defaults import get_default_config
+        cfg = get_default_config()
+        assert cfg["supervisor"]["model"] == "llama-3.1-70b-versatile"
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])

@@ -15,6 +15,9 @@ class AIProvider(ABC):
     def is_available(self) -> bool:
         pass
 
+    async def close(self):
+        pass
+
 
 class ProviderError(Exception):
     def __init__(self, message: str, provider: str, status_code: Optional[int] = None):

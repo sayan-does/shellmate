@@ -21,7 +21,7 @@ shellmate_analyze() {
     [ -z "$cmd" ] && return
 
     local result
-    result=$(shellmate analyze --quiet "$cmd" 2>/dev/null)
+    result=$(sm --quiet analyze "$cmd" 2>/dev/null)
     local exit_code=$?
 
     if [ $exit_code -ne 0 ] && [ -n "$result" ]; then
@@ -56,7 +56,7 @@ shellmate_suggest_prefix() {
         local payload="${BASH_REMATCH[2]}"
         if [ -n "$payload" ]; then
             local result
-            result=$(shellmate analyze --quiet "$payload" 2>/dev/null)
+            result=$(sm --quiet analyze "$payload" 2>/dev/null)
             if [ -n "$result" ]; then
                 local msg
                 msg=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message') or d.get('explanation') or (d.get('alternatives') or [''])[0])" 2>/dev/null)

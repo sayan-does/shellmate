@@ -5,6 +5,45 @@ from openai import AsyncOpenAI
 from .base import AIProvider, ProviderError
 
 
+def _format_context(context: Optional[dict]) -> str:
+    if not context:
+        return ""
+    parts = []
+    watcher = context.get("watcher", {})
+    if watcher:
+        parts.append("System Context:")
+        if watcher.get("os"):
+            parts.append(f"  OS: {watcher['os']}")
+        if watcher.get("shell"):
+            parts.append(f"  Shell: {watcher['shell']}")
+        if watcher.get("current_directory"):
+            parts.append(f"  Directory: {watcher['current_directory']}")
+        git = watcher.get("git_context")
+        if git:
+            git_parts = []
+            if git.get("branch"):
+                git_parts.append(f"branch={git['branch']}")
+            if git.get("staged"):
+                git_parts.append(f"staged={git['staged']}")
+            if git.get("unstaged"):
+                git_parts.append(f"unstaged={git['unstaged']}")
+            if git_parts:
+                parts.append(f"  Git: {', '.join(git_parts)}")
+        stack = watcher.get("tech_stack")
+        if stack:
+            parts.append(f"  Tech stack: {', '.join(stack[:5])}")
+    librarian = context.get("librarian", {})
+    if librarian and librarian.get("matches"):
+        parts.append("\nRelevant project files:")
+        for m in librarian["matches"][:3]:
+            path = m.get("file", m.get("path", "?"))
+            snippet = m.get("content", m.get("snippet", ""))[:200]
+            parts.append(f"  - {path}: {snippet}")
+    if not parts:
+        return ""
+    return "\n" + "\n".join(parts)
+
+
 class OpenRouterProvider(AIProvider):
     def __init__(self):
         self.api_key = os.environ.get("OPENROUTER_API_KEY")
@@ -34,15 +73,34 @@ class OpenRouterProvider(AIProvider):
         risk_level = risk.get("risk", risk.get("severity", "UNKNOWN"))
         reason = risk.get("reason", risk.get("message", "No reason provided"))
 
+        context_str = _format_context(context)
+        risk_upper = str(risk_level).upper()
+        if risk_upper in ("SAFE", "LOW"):
+            advisor_role = (
+                "You are a helpful shell command advisor. The user's command is low risk. "
+                "They likely need usage help: explain what they might be trying to do, "
+                "what each argument likely means, and suggest a corrected command using context."
+            )
+            alt_hint = (
+                'Start alternatives with "Maybe you\'re trying to..." then parameter notes, '
+                'then "Try: <corrected command>".'
+            )
+        else:
+            advisor_role = (
+                "You are a command safety advisor. A user typed a potentially dangerous command. "
+                "Provide safe alternatives that preserve the original intent."
+            )
+            alt_hint = "Maximum 3 safer alternatives. Never alter the user's original intent."
+
         prompt = (
-            "You are a command safety advisor. A user typed a potentially dangerous command. "
-            "Provide safe alternatives that preserve the original intent.\n\n"
+            f"{advisor_role}\n\n"
             f"Command: {command}\n"
             f"Risk Level: {risk_level}\n"
-            f"Reason: {reason}\n\n"
+            f"Reason: {reason}"
+            f"{context_str}\n\n"
             "Respond ONLY with valid JSON in this exact format:\n"
             '{"explanation": "plain language explanation", "alternatives": ["alt1", "alt2", "alt3"]}\n'
-            "Maximum 3 alternatives. Never alter the user's original intent."
+            f"{alt_hint}"
         )
 
         models_to_try = [self.primary_model] + self.fallback_models
@@ -74,6 +132,11 @@ class OpenRouterProvider(AIProvider):
                 continue
 
         raise ProviderError(f"All models failed. Last error: {last_error}", "openrouter")
+
+    async def close(self):
+        if self.client is not None:
+            await self.client.aclose()
+            self.client = None
 
     def is_available(self) -> bool:
         return bool(self.api_key)

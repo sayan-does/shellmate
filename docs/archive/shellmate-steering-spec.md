@@ -456,7 +456,6 @@ shellmate uninstall        # Remove ShellMate and all hooks
 shellmate enable           # Enable command interception
 shellmate disable          # Disable command interception
 shellmate status           # Show daemon and provider status
-shellmate doctor           # Run environment diagnostics
 shellmate config           # View or edit configuration
 shellmate logs             # Tail daemon logs
 shellmate cache clear      # Clear the semantic cache

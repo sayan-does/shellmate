@@ -47,6 +47,14 @@ def get_default_config():
             "max_bytes": 10485760,
             "backup_count": 5,
         },
+        "supervisor": {
+            "model": os.environ.get("GROQ_SUPERVISOR_MODEL", "llama-3.1-8b-instant"),
+            "timeout_ms": 500,
+        },
+        "command_guide": {
+            "model": os.environ.get("GROQ_COMMAND_GUIDE_MODEL", "llama-3.1-8b-instant"),
+            "timeout_ms": int(os.environ.get("GROQ_COMMAND_GUIDE_TIMEOUT_MS", "2000")),
+        },
         "plugins": {
             "directory": str(get_session_dir() / "plugins"),
             "enabled": True,

@@ -5,6 +5,7 @@ import platform
 import tempfile
 from pathlib import Path
 from config.paths import get_session_dir
+from cli.version import VERSION
 
 
 SESSION_FILE = get_session_dir() / "session.json"
@@ -30,7 +31,7 @@ def create_session(pid: int, cwd: str, ipc_address: str) -> dict:
         "created": time.time(),
         "owner": get_owner_identity(),
         "ipc_address": ipc_address,
-        "version": "2.0.0",
+        "version": VERSION,
     }
 
     write_session_atomic(session)

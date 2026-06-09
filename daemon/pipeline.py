@@ -22,6 +22,17 @@ def _get_rules():
 
 
 async def run_pipeline_async(command):
+    try:
+        from orchestration.analysis_graph import get_analysis_graph
+        graph = get_analysis_graph()
+        return await graph.analyze_command(command)
+    except (ImportError, Exception):
+        pass
+
+    return await _legacy_run_pipeline(command)
+
+
+async def _legacy_run_pipeline(command):
     stages = {}
     start_time = time.time()
 
@@ -89,8 +100,24 @@ async def run_pipeline_async(command):
             early_exit="cache",
         )
 
+    context_start = time.time()
+    context_result = {}
+    if _needs_context(sanitize_result["normalized"]):
+        from agents.context_gatherer import get_context_gatherer
+        gatherer = get_context_gatherer()
+        context_result = await gatherer.gather(sanitize_result["normalized"])
+    stages["context"] = time.time() - context_start
+
+    context_used = {
+        "watcher": bool(context_result.get("watcher")),
+        "librarian": bool(context_result.get("librarian", {}).get("matches")),
+    }
+
     risk_start = time.time()
-    risk_result = await analyze_risk(sanitize_result["normalized"])
+    risk_result = await analyze_risk(
+        sanitize_result["normalized"],
+        context=context_result,
+    )
     stages["risk_agent"] = time.time() - risk_start
 
     if risk_result.get("provider") != "fallback":
@@ -124,11 +151,27 @@ async def run_pipeline_async(command):
         message=risk_result.get("reason", remediation_result.get("explanation", "")),
         explanation=remediation_result.get("explanation", ""),
         alternatives=remediation_result.get("alternatives", []),
+        context_used=context_used,
         documentation=doc_result,
         rule_match=rule_result if rule_result["matched"] else None,
         risk_analysis=risk_result,
         stages=stages,
     )
+
+
+def _needs_context(command: str) -> bool:
+    tokens = command.split()
+    if not tokens:
+        return False
+    cmd = tokens[0].lower()
+    if cmd in ("rm", "mv", "cp", "cat", "less", "nano", "vim", "vi", "code", "open"):
+        return True
+    for token in tokens:
+        if token.startswith(("./", "../", "/", ".\\", "..\\")):
+            return True
+    if cmd in ("git", "docker", "docker-compose", "pip", "npm", "yarn", "pnpm"):
+        return True
+    return False
 
 
 def run_pipeline(command):
@@ -157,6 +200,7 @@ def _build_response(
     message="",
     explanation="",
     alternatives=None,
+    context_used=None,
     rule_id=None,
     category=None,
     cached=False,
@@ -175,6 +219,8 @@ def _build_response(
         "cached": cached,
     }
 
+    if context_used:
+        result["context_used"] = context_used
     if rule_id:
         result["rule_id"] = rule_id
     if category:

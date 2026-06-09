@@ -1,11 +1,7 @@
-from rich.console import Console
-
 from daemon.lifecycle import start_daemon
-
-console = Console()
+from daemon.startup_ui import run_startup_ui
 
 
 def enable():
-    console.print("[bold]Starting ShellMate daemon...[/bold]")
-    start_daemon()
-    console.print("[green]Daemon started.[/green]")
+    if start_daemon():
+        run_startup_ui()

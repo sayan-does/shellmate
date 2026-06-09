@@ -14,6 +14,9 @@ _index = None
 _metadata = []
 _embedder_loading = False
 _embedder_ready = threading.Event()
+_cache_lock = threading.Lock()
+_cache_store_count = 0
+_CACHE_SAVE_INTERVAL = 5
 
 
 def _get_embedder():
@@ -90,64 +93,68 @@ def generate_embedding(text):
 def cache_lookup(command):
     global _index, _metadata
 
-    idx = _get_index()
-    if idx.ntotal == 0:
-        return None
+    with _cache_lock:
+        idx = _get_index()
+        if idx.ntotal == 0:
+            return None
 
-    embedding = generate_embedding(command)
-    import numpy as np
-    query = np.array([embedding], dtype=np.float32)
+        embedding = generate_embedding(command)
+        import numpy as np
+        query = np.array([embedding], dtype=np.float32)
 
-    config = get_default_config()
-    threshold = config["cache"]["similarity_threshold"]
-    max_entries = config["cache"]["max_entries"]
-    expiration_days = config["cache"]["expiration_days"]
+        config = get_default_config()
+        threshold = config["cache"]["similarity_threshold"]
+        max_entries = config["cache"]["max_entries"]
+        expiration_days = config["cache"]["expiration_days"]
 
-    scores, indices = idx.search(query, 1)
-    if scores[0][0] >= threshold:
-        meta_idx = int(indices[0][0])
-        if meta_idx < len(_metadata):
-            entry = _metadata[meta_idx]
-            ts = datetime.fromisoformat(entry["timestamp"])
-            if datetime.now() - ts <= timedelta(days=expiration_days):
-                _prune_old_entries(expiration_days, max_entries)
-                return {
-                    "command": entry["command"],
-                    "risk": entry.get("risk", entry.get("severity")),
-                    "confidence": entry.get("confidence", 0.0),
-                    "explanation": entry.get("explanation", entry.get("message", "")),
-                    "alternatives": entry.get("alternatives", []),
-                    "timestamp": entry["timestamp"],
-                    "cached": True,
-                }
+        scores, indices = idx.search(query, 1)
+        if scores[0][0] >= threshold:
+            meta_idx = int(indices[0][0])
+            if meta_idx < len(_metadata):
+                entry = _metadata[meta_idx]
+                ts = datetime.fromisoformat(entry["timestamp"])
+                if datetime.now() - ts <= timedelta(days=expiration_days):
+                    _prune_old_entries(expiration_days, max_entries)
+                    return {
+                        "command": entry["command"],
+                        "risk": entry.get("risk", entry.get("severity")),
+                        "confidence": entry.get("confidence", 0.0),
+                        "explanation": entry.get("explanation", entry.get("message", "")),
+                        "alternatives": entry.get("alternatives", []),
+                        "timestamp": entry["timestamp"],
+                        "cached": True,
+                    }
 
     return None
 
 
 def cache_store(command, result):
-    global _index, _metadata
+    global _index, _metadata, _cache_store_count
 
-    idx = _get_index()
-    embedding = generate_embedding(command)
+    with _cache_lock:
+        idx = _get_index()
+        embedding = generate_embedding(command)
 
-    import numpy as np
-    vector = np.array([embedding], dtype=np.float32)
+        import numpy as np
+        vector = np.array([embedding], dtype=np.float32)
 
-    entry = {
-        "command": command,
-        "risk": result.get("risk", result.get("severity", "UNKNOWN")),
-        "confidence": result.get("confidence", 0.0),
-        "explanation": result.get("explanation", result.get("message", result.get("reason", ""))),
-        "alternatives": result.get("alternatives", []),
-        "timestamp": datetime.now().isoformat(),
-    }
+        entry = {
+            "command": command,
+            "risk": result.get("risk", result.get("severity", "UNKNOWN")),
+            "confidence": result.get("confidence", 0.0),
+            "explanation": result.get("explanation", result.get("message", result.get("reason", ""))),
+            "alternatives": result.get("alternatives", []),
+            "timestamp": datetime.now().isoformat(),
+        }
 
-    idx.add(vector)
-    _metadata.append(entry)
-    _save_index()
+        idx.add(vector)
+        _metadata.append(entry)
+        _cache_store_count += 1
+        if _cache_store_count % _CACHE_SAVE_INTERVAL == 0:
+            _save_index()
 
-    config = get_default_config()
-    _prune_old_entries(config["cache"]["expiration_days"], config["cache"]["max_entries"])
+        config = get_default_config()
+        _prune_old_entries(config["cache"]["expiration_days"], config["cache"]["max_entries"])
 
 
 def _prune_old_entries(expiration_days, max_entries):
@@ -202,17 +209,19 @@ def _rebuild_index(valid_indices):
 
 def clear_cache():
     global _index, _metadata
-    import faiss
-    import numpy as np
 
-    config = get_default_config()
-    dim = 384
-    _index = faiss.IndexFlatIP(dim)
-    _metadata = []
+    with _cache_lock:
+        import faiss
+        import numpy as np
 
-    if os.path.exists(CACHE_DIR):
-        import shutil
-        shutil.rmtree(CACHE_DIR)
+        config = get_default_config()
+        dim = 384
+        _index = faiss.IndexFlatIP(dim)
+        _metadata = []
 
-    os.makedirs(CACHE_DIR, exist_ok=True)
-    _save_index()
+        if os.path.exists(CACHE_DIR):
+            import shutil
+            shutil.rmtree(CACHE_DIR)
+
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        _save_index()

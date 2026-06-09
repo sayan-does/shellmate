@@ -123,11 +123,20 @@ def _prompt_credential_setup():
 
 
 @click.command()
-def install():
+@click.option("--dry-run", is_flag=True, help="Show what would be installed without making changes")
+def install(dry_run):
     """Install ShellMate and shell hooks"""
     env = detect_environment()
     shell = env["shell"]
     click.echo(f"Detected: {env['os']} / {shell}")
+
+    if dry_run:
+        adapter_name = _get_adapter_source(shell)
+        rc_files = _get_rc_file(shell)
+        click.echo(f"[DRY RUN] Would install {adapter_name} hook for {shell}")
+        for rc in rc_files:
+            click.echo(f"[DRY RUN] Would add source line to: {rc}")
+        return
 
     success, message = _install_hook(shell)
     if success:

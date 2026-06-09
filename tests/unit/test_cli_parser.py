@@ -59,7 +59,36 @@ class TestCLIParser:
         result = parse_argv(["-a"])
         assert result.action == Action.ANALYZE
         assert result.exit_code == ExitCode.USAGE_ERROR
-        assert "Missing command after -a" in result.error
+        assert "Missing command" in result.error
+
+    def test_analyze_via_subcommand(self):
+        result = parse_argv(["analyze", "echo", "hello"])
+        assert result.action == Action.ANALYZE
+        assert result.raw_command == "echo hello"
+        assert result.exit_code == ExitCode.SUCCESS
+
+    def test_analyze_with_quiet_flag(self):
+        result = parse_argv(["--quiet", "-a", "ls"])
+        assert result.action == Action.ANALYZE
+        assert result.quiet is True
+
+    def test_analyze_with_short_quiet_flag_before_subcommand(self):
+        result = parse_argv(["-q", "-a", "pwd"])
+        assert result.action == Action.ANALYZE
+        assert result.quiet is True
+        assert result.raw_command == "pwd"
+
+    def test_analyze_preserves_command_quiet_flag(self):
+        result = parse_argv(["-a", "python", "-m", "pytest", "tests/unit/", "-q"])
+        assert result.action == Action.ANALYZE
+        assert result.quiet is False
+        assert result.raw_command == "python -m pytest tests/unit/ -q"
+
+    def test_analyze_quiet_via_subcommand(self):
+        result = parse_argv(["--quiet", "analyze", "git", "status"])
+        assert result.action == Action.ANALYZE
+        assert result.raw_command == "git status"
+        assert result.quiet is True
 
     def test_enable_command(self):
         result = parse_argv(["enable"])
@@ -84,8 +113,8 @@ class TestCLIParser:
         assert result.exit_code == ExitCode.USAGE_ERROR
         assert "Unknown command: unknown" in result.error
 
-    def test_old_analyze_usage(self):
-        result = parse_argv(["analyze", "echo hello"])
+    def test_nonexistent_command(self):
+        result = parse_argv(["nonexistent"])
         assert result.action == Action.HELP
         assert result.exit_code == ExitCode.USAGE_ERROR
 

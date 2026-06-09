@@ -8,7 +8,7 @@ function Invoke-ShellMateAnalysis {
 
     if ([string]::IsNullOrWhiteSpace($Command)) { return }
 
-    $result = & shellmate analyze --quiet $Command 2>&1 | Out-String
+    $result = & sm --quiet analyze $Command 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -and $result) {
         try {
             $parsed = $result | ConvertFrom-Json
@@ -51,7 +51,7 @@ function Invoke-ShellMateSuggestion {
     $trimmed = $Command -replace '^(?:/s|/a)\s*', ''
     if ([string]::IsNullOrWhiteSpace($trimmed)) { return }
 
-    $result = & shellmate analyze --quiet $trimmed 2>&1 | Out-String
+    $result = & sm --quiet analyze $trimmed 2>&1 | Out-String
     if ($result) {
         try {
             $parsed = $result | ConvertFrom-Json

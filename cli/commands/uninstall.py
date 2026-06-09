@@ -56,10 +56,18 @@ def _remove_hook(shell):
 
 
 @click.command()
-def uninstall():
+@click.option("--dry-run", is_flag=True, help="Show what would be removed without making changes")
+def uninstall(dry_run):
     """Remove ShellMate and all hooks"""
     env = detect_environment()
     shell = env["shell"]
+
+    if dry_run:
+        rc_files = _get_rc_file(shell)
+        click.echo(f"[DRY RUN] Would remove ShellMate hooks for {shell}")
+        for rc in rc_files:
+            click.echo(f"[DRY RUN] Would remove hooks from: {rc}")
+        return
 
     removed = _remove_hook(shell)
     if removed:

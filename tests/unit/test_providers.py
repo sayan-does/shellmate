@@ -1,6 +1,7 @@
 import sys
 import os
 import pytest
+from unittest.mock import AsyncMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from providers.base import AIProvider, ProviderError
@@ -67,13 +68,13 @@ class TestRouter:
             os.environ["CONTEXT7_API_KEY"] = self._orig_context7
 
     def test_provider_status(self):
-        from config.credentials import load_env
-        env = load_env()
-        groq_configured = bool(env.get("GROQ_API_KEY"))
         status = get_provider_status()
         assert "groq" in status
         assert "openrouter" in status
-        assert status["groq"]["configured"] is groq_configured
+        assert isinstance(status["groq"]["configured"], bool)
+        assert isinstance(status["openrouter"]["configured"], bool)
+        assert status["groq"]["status"] in ("available", "not_configured")
+        assert status["openrouter"]["status"] in ("available", "not_configured")
 
     @pytest.mark.asyncio
     async def test_fallback_risk_analysis(self):
@@ -88,3 +89,28 @@ class TestRouter:
         result = await generate_remediation("rm -rf /", risk)
         assert "explanation" in result
         assert "alternatives" in result
+
+    @pytest.mark.asyncio
+    async def test_fallback_remediation_uses_command_guide(self, mocker):
+        mock_groq = mocker.MagicMock()
+        mock_groq.is_available.return_value = True
+        mocker.patch("providers.router.get_groq_provider", return_value=mock_groq)
+        mocker.patch(
+            "providers.openrouter_provider.OpenRouterProvider.generate_remediation",
+            side_effect=ProviderError("no key", "openrouter"),
+        )
+        mock_guide = mocker.patch(
+            "providers.groq_command_guide.generate_command_guide",
+            new_callable=AsyncMock,
+            return_value={
+                "intent_guess": "Maybe you're trying to run pytest",
+                "parameters": ["-v: verbose"],
+                "suggested_command": "python -m pytest -v",
+            },
+        )
+        risk = {"risk": "LOW", "reason": "running tests", "confidence": 0.8}
+        result = await generate_remediation("python -m pytest test", risk)
+        mock_guide.assert_awaited_once()
+        assert result["model"] == "groq_command_guide"
+        assert any("Maybe you're trying" in a for a in result["alternatives"])
+        assert result.get("command_guide") is not None

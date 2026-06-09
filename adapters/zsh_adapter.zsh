@@ -7,7 +7,7 @@ shellmate_analyze() {
     [ -z "$cmd" ] && return
 
     local result
-    result=$(shellmate analyze --quiet "$cmd" 2>/dev/null)
+    result=$(sm --quiet analyze "$cmd" 2>/dev/null)
     local exit_code=$?
 
     if [ $exit_code -ne 0 ] && [ -n "$result" ]; then
@@ -41,7 +41,7 @@ shellmate_suggest_prefix() {
         local payload="${BASH_REMATCH[2]}"
         if [ -n "$payload" ]; then
             local result
-            result=$(shellmate analyze --quiet "$payload" 2>/dev/null)
+            result=$(sm --quiet analyze "$payload" 2>/dev/null)
             if [ -n "$result" ]; then
                 local msg
                 msg=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message') or d.get('explanation') or (d.get('alternatives') or [''])[0])" 2>/dev/null)
@@ -58,9 +58,9 @@ shellmate_suggest_prefix() {
     return 0
 }
 
-# Hook into zsh preexec to check prefix
-shellmate_preexec() {
-    # $1 is the command about to run
+# Hook into zsh preexec to check prefix then analyze
+autoload -Uz add-zsh-hook
+_shellmate_preexec() {
     if shellmate_suggest_prefix "$1"; then
         shellmate_analyze "$1"
     else
@@ -68,10 +68,4 @@ shellmate_preexec() {
         kill -INT $$
     fi
 }
-
-# Zsh preexec hook
-autoload -Uz add-zsh-hook
-shellmate_preexec() {
-    shellmate_analyze "$1"
-}
-add-zsh-hook preexec shellmate_preexec
+add-zsh-hook preexec _shellmate_preexec

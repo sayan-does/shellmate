@@ -1,308 +1,461 @@
-# ShellMate v2.0 MVP - Requirements & Design
+# ShellMate v2.0 MVP — Requirements & Design
 
-**Status:** MVP design source of truth
-**Version target:** 2.0.0
-**Last updated:** 2026-06-06
+**Status:** MVP design source of truth (feasibility-adjusted)  
+**Version target:** 2.0.0  
+**Last updated:** 2026-06-09
 
-This document is the single requirements and design plan for the ShellMate v2.0 MVP. The companion implementation checklist is `docs/v2-implementation-tasks.md`.
-
----
-
-## 1. MVP Goal
-
-ShellMate v2.0 upgrades the current command-safety flow into a daemon-backed, context-aware command analysis system.
-
-The MVP must deliver:
-
-- A simpler CLI: `sm -a <command>`.
-- A single-user background daemon for command analysis.
-- Project context from two agents: Watcher and Librarian.
-- Rich terminal output for startup, status, errors, and analysis results.
-- Cross-platform behavior on Windows, Linux, and macOS.
-- Graceful degradation when agents, providers, file watching, or git detection fail.
+This document is the single requirements and design plan for ShellMate v2.0.  
+Implementation checklist: [`v2-implementation-tasks.md`](v2-implementation-tasks.md)  
+OpenCode step-by-step guide: [`v2-release-tracker.md`](v2-release-tracker.md)
 
 ---
 
-## 2. MVP Scope
+## 0. Product Vision
 
-### In Scope
+ShellMate is a **session-based, context-aware command safety layer** for the terminal.
 
-- `sm -a <command>` command analysis.
-- `sm enable`, `sm disable`, `sm status`, and `sm config`.
-- Single active daemon/session per user.
-- Session-local file index rebuilt on `sm enable` and deleted on `sm disable`.
-- Watcher agent for environment, tech stack, and git snapshot detection.
-- Librarian agent for vectorless file/path search using an in-memory index.
-- `/status`, `analyze`, `shutdown`, `health`, and `/context-gatherer` IPC handlers.
-- Existing provider support with context-aware prompts and deterministic fallback when providers fail.
-- Shell adapter updates for bash, zsh, and PowerShell.
-- Unit and integration tests for parser, daemon lifecycle, agents, context gathering, provider fallback, and shell adapter smoke behavior.
+1. **Analyze:** `sm -a <command>` — everything after `-a` is the command. No wrapping quotes.
+2. **Initialize:** `sm enable` — CLI shows Rich loading until core subsystems are ready, then greets with usage.
+3. **Multi-agent orchestration:** **[LangGraph](https://langchain-ai.github.io/langgraph/)** coordinates specialist agents (Watcher, Librarian) and analysis steps (rules, risk, remediation).
+4. **Exit:** `sm disable` — stop daemon, delete session data, print **"ShellMate has been disabled."**
 
-### Out Of Scope For MVP
-
-- Backward-compatible v1 CLI support.
-- Multi-session or multi-directory daemon support.
-- Persistent RAG index across enable/disable cycles.
-- Embeddings, semantic search, fuzzy search, or ML-based RAG.
-- User plugin system or dynamic third-party agent loading.
-- `/deep-research`, `sm research`, `sm providers`, and `sm doctor`.
-- Full Prometheus metrics endpoint. Basic structured logs are in scope.
-- Persistent dashboard or full TUI app.
+Session knowledge (Repomix pack, env snapshot) exists **only between enable and disable**.
 
 ---
 
-## 3. Constraints And Decisions
+## 1. Feasibility Audit (2026-06-09)
 
-- Runtime: Python 3.8+ with asyncio.
-- OS support: Windows, Linux, macOS.
-- Shell support: bash, zsh, PowerShell. cmd/fish support is desirable but not required for MVP unless already supported by existing adapters.
-- Daemon model: one daemon per user, one active project directory at a time.
-- IPC model: local-only JSON IPC. MVP may use TCP on `127.0.0.1` with same-user/session validation. Unix sockets/named pipes may be added later if the implementation already supports them cleanly.
-- Agent timeout: the total context-gathering phase has a hard user-facing cutoff of 500ms. No retry is allowed inside this 500ms budget.
-- RAG model: vectorless keyword/path search only.
-- Index lifetime: session-only. Delete the index on clean shutdown.
-- File watching: use watchdog when available. If watching fails, keep the startup index and warn that live updates are disabled.
+### 1.1 Verdict
 
----
+| Overall | Assessment |
+|---------|------------|
+| **Ship v2.0 MVP** | **Feasible** — core infra ~85% built; LangGraph refactor + Repomix + polish ~1–2 weeks |
+| **LangGraph orchestration** | **Feasible** — wrap existing agents as graph nodes; supervisor routing can be deterministic for MVP |
+| **Greenfield rebuild** | **Not needed** — migrate `pipeline.py` + `context_gatherer.py` into LangGraph |
 
-## 4. Functional Requirements
+### 1.2 Already implemented (reuse as graph nodes)
 
-### FR-1: CLI
+| Capability | Module | LangGraph role |
+|------------|--------|----------------|
+| `sm -a` parsing | `cli/parser.py` | Pre-graph CLI ✅ |
+| Daemon + IPC | `daemon/server.py` | Invokes compiled graph ✅ |
+| Watcher agent | `agents/watcher.py` | **Graph node:** `watcher` |
+| Librarian agent | `agents/librarian.py` | **Graph node:** `librarian` (→ Repomix) |
+| Rules / sanitizer / cache | `rules/`, `sanitizer/`, `cache/` | **Graph nodes:** deterministic pre-steps |
+| Providers | `providers/router.py` | **Graph nodes:** `risk_analyzer`, `remediation` |
+| Custom orchestration (to replace) | `daemon/pipeline.py`, `agents/context_gatherer.py` | → **`orchestration/analysis_graph.py`** |
 
-- `sm -a <command>` treats everything after `-a` as the command to analyze.
-- Commands with flags, quotes, pipes, redirects, and shell-special tokens must preserve user intent as far as argv allows.
-- `sm enable` starts the daemon for the current directory.
-- `sm disable` gracefully stops the daemon and removes session files.
-- `sm status` shows daemon, agent, provider, and session state.
-- `sm config` configures provider credentials/settings without printing secrets.
-- Invalid CLI usage must show a concise suggestion and exit with a usage code when run as a normal CLI process.
-- Shell hooks may choose to return control to the prompt after displaying the same error.
+### 1.3 LangGraph orchestration (author decision 2026-06-09)
 
-### FR-2: Daemon Lifecycle
+**Decision:** Multi-agent orchestration uses **LangGraph `StateGraph`**, not ad-hoc asyncio pipeline code.
 
-- `sm enable` validates stale sessions before starting a new daemon.
-- The daemon must bind IPC/status before long-running agent startup so the CLI can poll startup progress.
-- The daemon writes session metadata atomically only after IPC is ready.
-- The CLI polls `/status` for startup progress and never reads in-memory daemon queues.
-- `sm disable` sends a shutdown request, waits briefly for graceful shutdown, then reports failure if the daemon does not stop.
-- Stale PID/session files must be cleaned up only after process ownership and liveness checks.
+| Aspect | MVP choice | Rationale |
+|--------|------------|-----------|
+| **Pattern** | **Supervisor + worker nodes** | Watcher and Librarian are workers; analysis flow is supervised |
+| **Supervisor routing** | **Deterministic heuristics** (P0) | Works without API keys; predictable; fits 500ms budget |
+| **LLM supervisor** | Optional (P2) | Route via LLM only when Groq key present and command is ambiguous |
+| **Graph API** | **`StateGraph` (manual)** | Full control over parallel fan-out, early exit, timeouts — not `create_supervisor` alone |
+| **State** | Shared `AnalysisState` TypedDict | Command, contexts, risk, remediation, errors, stage latencies |
+| **Parallel workers** | LangGraph fan-out to `watcher` + `librarian` | Replace `context_gatherer.gather()` |
+| **Early exit** | Conditional edges after `rules` / `cache` nodes | Preserve current pipeline optimizations |
+| **Compiled graph** | Singleton compiled at daemon startup | `graph.ainvoke(state)` from IPC analyze handler |
+| **Dependencies** | `langgraph`, `langchain-core` | Add to `pyproject.toml`; no full LangChain required |
 
-### FR-3: Session Management
+**Feasibility:** Existing agent classes stay unchanged; orchestration layer is a **refactor** (~M effort), not a rewrite of Watcher/Librarian.
 
-- Store session data under the platform-appropriate ShellMate state directory.
-- Session metadata includes PID, project directory, created time, IPC address, and owner identity when available.
-- Unix session directories use restrictive permissions (`700` for directories, `600` for sensitive files). Windows must use the best available user-only equivalent.
-- Clean shutdown removes temporary session data, including the index and environment cache.
-- Logs may remain outside the session directory for diagnostics and must be rotated.
+### 1.4 Repomix for Session RAG (author decision 2026-06-09)
 
-### FR-4: Watcher Agent
+Librarian worker node uses **Repomix** pack + grep (see FR-4/FR-5). Node.js 18+ required; legacy keyword index as fallback.
 
-- Detect OS, shell, terminal if available, environment type, and whether execution appears to be WSL/container/SSH/native.
-- Detect root-level tech stack indicators such as `package.json`, `pyproject.toml`, `requirements.txt`, `Cargo.toml`, `go.mod`, `Gemfile`, `composer.json`, `Dockerfile`, `docker-compose.yml`, `Makefile`, `vite.config.*`, and `tsconfig.json`.
-- Detect git context when git is installed and the directory is a repository.
-- Git context includes branch or detached HEAD, staged/unstaged change counts, last commit hash/message when available, and repository root.
-- Detection runs at startup and is cached in memory.
-- Agent requests return cached context only; they must not perform slow detection in the request path.
-- Missing git, non-git directories, empty repos, detached HEAD, and subprocess errors must degrade gracefully.
+### 1.5 Other constraints (unchanged)
 
-### FR-5: Librarian Agent
+- **Ready** = IPC + agents initialized + Repomix pack (or fallback) + provider config checked — not LLM network ping
+- FAISS command cache: background only; not part of LangGraph critical path
+- API keys optional; rule fallback via graph `risk_analyzer` node
 
-- Recursively index known code, config, shell, build, and docs files from the active project directory.
-- Respect obvious ignore boundaries such as `.git`, virtualenvs, dependency directories, build output, and binary files.
-- Maintain an in-memory index for search. `index.md` is only a debugging/session artifact, not the search backend.
-- Use token/path keyword search with deterministic ranking.
-- Return at most 10 matches per request with path, match type, metadata, and sanitized snippet when available.
-- Watchdog callbacks must not mutate the index directly from a watcher thread. They must enqueue events for an async consumer or use equivalent serialization.
-- For large projects, index up to 5,000 eligible files for MVP, warn clearly, and continue with partial coverage.
+### 1.6 Legacy code stance
 
-### FR-6: Context Gathering
-
-- Context gathering is implemented as a daemon helper used by the pipeline and exposed through `/context-gatherer` for diagnostics/external callers.
-- The pipeline should call the in-process helper directly, not loop back through IPC while already inside the daemon.
-- Context gathering chooses relevant agents based on command tokens, file references, and known command categories.
-- Watcher and Librarian requests run concurrently.
-- The total context gathering phase must return within 500ms.
-- Responses include context data, `timed_out`, `errors`, `partial`, and per-agent latency fields.
-- Timeouts, failed agents, and malformed agent responses must not block command analysis.
-
-### FR-7: Pipeline And Providers
-
-- Pipeline stages: sanitize, parse, rules, cache lookup, context gathering, provider analysis, postprocess, response formatting.
-- Preserve early exits for cache hits, sanitizer-corrected commands, and high-confidence deterministic rules.
-- Provider prompts include sanitized command, relevant environment context, relevant file context, and git context when available.
-- Provider inputs must redact secrets and high-risk PII before network calls.
-- Provider failure must fall back to deterministic rule-based output.
-- No tests may require real provider API keys.
-
-### FR-8: UI/UX
-
-- Use Rich for formatted terminal output.
-- Startup progress shows daemon binding, agent startup, indexing progress, provider config status, and ready/error state.
-- Status output includes daemon PID/directory/uptime, agent readiness/file count, provider configuration, and last health check.
-- Analysis output includes risk level, explanation, alternatives/remediation, context used, and latency breakdown.
-- Error output includes clear next steps.
-- Provide plain-text-safe fallbacks for terminals without color/truecolor support.
-
-### FR-9: Shell Adapters
-
-- Bash, zsh, and PowerShell adapters must call `sm -a <command>` without breaking normal shell behavior.
-- Adapter install/uninstall must respect user consent and support a dry-run if currently available or easy to add.
-- Adapter tests must cover quoting, commands with flags, and disabled-daemon behavior.
+| Component | MVP stance |
+|-----------|------------|
+| `daemon/pipeline.py` | **Deprecate** → thin wrapper calling LangGraph |
+| `agents/context_gatherer.py` | **Deprecate** → logic moves into graph supervisor + worker nodes |
+| `agents/base.py` AgentManager | **Keep** — workers still use asyncio agents under graph nodes |
+| `cache/semantic_cache.py` | Keep as graph `cache_lookup` node |
+| `documentation/context7_client.py` | Optional post-remediation node (P2); skip if no key |
 
 ---
 
-## 5. Non-Functional Requirements
+## 2. MVP Goal
 
-### Performance
-
-- Startup for typical projects under 1,000 eligible files: target < 10s.
-- Startup for larger projects: warn and remain usable with partial index.
-- Context gathering: hard cutoff 500ms total.
-- Watcher context request: typical < 20ms from cache.
-- Librarian search request: typical < 100ms from in-memory index.
-- AI-backed analysis: target < 6s total, excluding provider outages.
-
-### Reliability
-
-- Agent exceptions must not crash the daemon.
-- IPC handlers must use read/write timeouts and input size limits.
-- Shutdown must cancel agent tasks and stop watchdog observers.
-- Stale sessions must be cleaned deterministically.
-- File permission errors during indexing must skip files and continue.
-
-### Security
-
-- IPC binds only locally and validates the active session/owner where possible.
-- IPC rejects malformed payloads and oversized requests.
-- Librarian must not read outside the active project root.
-- File snippets and prompts must redact secrets, long tokens, SSH keys, email addresses, and provider keys.
-- API keys must never appear in logs, stack traces, prompt snapshots, or UI output.
-- Logs must be structured enough for debugging and rotated to a bounded size.
+- `sm -a <command>` with LangGraph-orchestrated multi-agent analysis
+- Repomix-backed Librarian session RAG
+- Watcher + Librarian as parallel LangGraph worker nodes
+- Deterministic supervisor routing + rule fallback (no API key required)
+- Rich enable/disable UX
 
 ---
 
-## 6. Architecture
+## 3. MVP Scope
+
+### In scope
+
+| Area | MVP behavior |
+|------|----------------|
+| Orchestration | **LangGraph `StateGraph`** — supervisor pattern with worker nodes |
+| CLI | `sm -a`, `sm enable`, `sm disable`, `sm status`, `sm config` |
+| Workers | Watcher (env/git), Librarian (Repomix pack + grep) |
+| Analysis nodes | sanitize, parse, rules, cache, risk_analyzer, remediation, format |
+| Supervisor | Deterministic routing: which workers to invoke per command |
+| Session RAG | Repomix pack in session dir; deleted on disable |
+| Providers | Groq + OpenRouter when keyed; graph fallback nodes |
+| IPC | analyze invokes graph; `/context-gatherer` invokes worker subgraph |
+| Tests | Graph unit tests with mocked nodes; e2e unchanged |
+
+### Out of scope
+
+- LLM-based supervisor routing (P2)
+- LangGraph Studio / LangSmith required for MVP (optional for dev)
+- Persistent graph checkpointing across daemon restarts
+- v1 CLI, multi-session daemon, Librarian embeddings
+
+---
+
+## 4. Constraints And Decisions
+
+| Decision | Choice |
+|----------|--------|
+| **Orchestration** | **LangGraph `StateGraph`** in `orchestration/analysis_graph.py` |
+| **Supervisor (P0)** | Deterministic Python function — not an LLM call |
+| **Workers** | `watcher`, `librarian` — LangGraph nodes wrapping existing agents |
+| **State schema** | `AnalysisState` TypedDict (see §9) |
+| **Invocation** | `await analysis_graph.ainvoke(initial_state)` from IPC handler |
+| **Context budget** | Graph-level `asyncio.wait` / timeout on worker fan-out — **500ms** |
+| **Session RAG** | Repomix via Librarian node |
+| **Node.js** | 18+ for Repomix |
+| **Runtime** | Python 3.10+ |
+| **Dependencies** | `langgraph>=0.2`, `langchain-core>=0.3` |
+
+---
+
+## 5. Terminology
+
+| Term | Meaning |
+|------|---------|
+| **Analysis graph** | Compiled LangGraph `StateGraph` for one `sm -a` request |
+| **Supervisor node** | Graph node that decides which workers to run (deterministic in MVP) |
+| **Worker node** | Watcher or Librarian — gathers context, returns to merge node |
+| **Main flow** | sanitize → parse → rules → cache → supervisor → workers → risk → remediation → format |
+| **Session RAG** | Repomix pack in session dir (Librarian worker) |
+| **Early exit** | Conditional edge to `format_response` → END (skip workers/LLM) |
+
+---
+
+## 6. Functional Requirements
+
+### FR-1: CLI — `sm -a` (P0) ✅
+
+Unchanged. Graph runs inside daemon on analyze IPC request.
+
+---
+
+### FR-2: Enable Flow (P0) ⚠️
+
+Unchanged UX. Daemon startup must:
+
+1. Start Watcher + Librarian agents (workers need live services)
+2. Run Repomix pack (Librarian init)
+3. **Compile LangGraph once:** `build_analysis_graph()` → store singleton
+4. Report `startup_stage == "ready"`
+
+LangGraph compile is fast (no LLM init in graph for MVP supervisor).
+
+---
+
+### FR-3 – FR-6: Disable, Repomix, Librarian, Watcher
+
+Unchanged from prior spec. Workers are invoked **via LangGraph nodes**, not direct `context_gatherer` calls.
+
+---
+
+### FR-7: LangGraph Multi-Agent Orchestration (P0) ⚠️ **New — replaces pipeline**
+
+**Module:** `orchestration/analysis_graph.py`  
+**State:** `orchestration/state.py` → `AnalysisState`
+
+#### Graph nodes (MVP)
+
+| Node | Type | Description |
+|------|------|-------------|
+| `sanitize` | Deterministic | Typo/syntax check |
+| `parse` | Deterministic | Command structure |
+| `rules` | Deterministic | YAML rule engine |
+| `cache_lookup` | Deterministic | FAISS semantic cache |
+| `supervisor` | **Supervisor** | Decide workers: `watcher`, `librarian`, both, or none |
+| `watcher` | **Worker** | Call Watcher agent; write `state["watcher"]` |
+| `librarian` | **Worker** | Call Librarian agent / Repomix grep; write `state["librarian"]` |
+| `merge_context` | Deterministic | Merge worker outputs; enforce 500ms; set `partial` / `timed_out` |
+| `risk_analyzer` | LLM or fallback | Groq with full context in prompt |
+| `remediation` | LLM or fallback | OpenRouter with context |
+| `format_response` | Deterministic | Build IPC/CLI response dict |
+
+#### Graph edges (MVP)
 
 ```text
-User CLI / shell adapter
-        |
-        | local JSON IPC
-        v
-ShellMate daemon
-  - IPC server and request router
-  - startup status model
-  - command pipeline
-  - provider router
-  - context gatherer helper
-        |
-        +--> Watcher agent: cached environment, tech stack, git snapshot
-        |
-        +--> Librarian agent: in-memory file index, watchdog event queue
-        |
-        +--> Session manager: session metadata, cleanup, logs pointer
+START → sanitize → parse → rules
+                              ├─ [matched ≥0.9] → format_response → END
+                              └─ continue → cache_lookup
+                                              ├─ [hit] → format_response → END
+                                              └─ continue → supervisor
+                                                              ├─ fan-out → watcher ──┐
+                                                              ├─ fan-out → librarian ┼→ merge_context
+                                                              └─ [no workers] ───────┘
+                                                                    → risk_analyzer → remediation → format_response → END
 ```
 
-### Startup Flow
+#### Supervisor routing (deterministic P0)
 
-1. CLI receives `sm enable`.
-2. CLI checks and cleans stale session metadata.
-3. CLI starts daemon process.
-4. Daemon binds local IPC and initializes startup status.
-5. Daemon writes session metadata atomically.
-6. CLI polls `/status`.
-7. Daemon starts Watcher and Librarian agents.
-8. Agents update startup status as they initialize.
-9. CLI displays progress until ready or timeout.
+```python
+def supervisor_route(state: AnalysisState) -> list[str]:
+    cmd = state["command"]
+    workers = []
+    workers.append("watcher")  # env/git context for most commands
+    if needs_librarian(cmd):   # file paths, rm, cat, etc.
+        workers.append("librarian")
+    return workers
+```
 
-### Analysis Flow
+P2: replace with LLM supervisor when `GROQ_API_KEY` set and `config.use_llm_supervisor=true`.
 
-1. CLI receives `sm -a <command>`.
-2. CLI sends `analyze` request to daemon.
-3. Daemon pipeline sanitizes/parses/checks rules/cache.
-4. Pipeline calls in-process context gatherer helper when context may be useful.
-5. Context gatherer queries relevant agents concurrently within 500ms.
-6. Pipeline calls provider or deterministic fallback.
-7. Daemon returns structured result.
-8. CLI renders Rich output.
+#### Worker node contract
 
-### Shutdown Flow
+Each worker node:
 
-1. CLI sends `shutdown` request.
-2. Daemon stops accepting new analysis work.
-3. Daemon cancels agent tasks and stops watchdog observer.
-4. Daemon closes IPC server.
-5. Daemon removes session data.
-6. CLI reports disabled state.
+1. Reads `state["command"]`
+2. Calls existing agent via `AgentManager` / `get_watcher_agent()` / `get_librarian_agent()`
+3. Returns partial state update `{ "watcher": {...} }` or `{ "librarian": {...} }`
+4. Catches exceptions → `{ "errors": {"watcher": "..."} }` — never raises to crash graph
+
+#### Integration points
+
+| Caller | Action |
+|--------|--------|
+| `daemon/server.py` analyze handler | `result = await graph.ainvoke({"command": cmd, ...})` |
+| `daemon/pipeline.py` | Thin wrapper: `return await run_analysis_graph(command)` |
+| `/context-gatherer` IPC | Run subgraph: `supervisor → workers → merge_context` only |
+| Tests | Mock worker nodes; test routing and early exit |
+
+#### Deprecations
+
+- `agents/context_gatherer.py` — logic absorbed into graph; keep thin wrapper for tests until migrated
+- Direct `context_gatherer.gather()` calls from pipeline — remove after LGR-01
 
 ---
 
-## 7. Data Contracts
+### FR-8: Context Gathering (P0) — via LangGraph
 
-### Analyze Request
+- Implemented as **supervisor + parallel worker nodes + merge_context**
+- 500ms timeout on worker fan-out (graph interrupt or `asyncio.wait` inside merge node)
+- Response fields unchanged: `watcher`, `librarian`, `timed_out`, `errors`, `partial`, `latency_ms`, `agent_latency_ms`
+- `/context-gatherer` IPC runs worker subgraph only
 
-```json
-{
-  "type": "analyze",
-  "request_id": "uuid",
-  "command": "rm -rf ./build",
-  "cwd": "/path/to/project"
-}
+---
+
+### FR-9 – FR-11: UI, Adapters, Session
+
+Unchanged.
+
+---
+
+## 7. Non-Functional Requirements
+
+| Metric | Target |
+|--------|--------|
+| Graph invoke (no LLM) | < 50ms excluding workers |
+| Worker fan-out | 500ms max (merge_context) |
+| Full analysis (with LLM) | < 6s |
+| Graph compile at startup | < 1s |
+
+**Reliability:** Worker node exceptions caught; graph always reaches `format_response` with fallback risk.
+
+**Testing:** Unit-test graph routing with `langgraph` in-memory; no real API keys.
+
+---
+
+## 8. Architecture
+
+```text
+User: sm -a <command>
+  → CLI → IPC analyze
+  → daemon/server.py
+  → analysis_graph.ainvoke(AnalysisState)
+        │
+        ├─ sanitize → parse → rules → cache (early exit edges)
+        │
+        ├─ supervisor (deterministic routing)
+        │     ├─ watcher node ────┐
+        │     └─ librarian node ──┼─ merge_context (500ms)
+        │                         │
+        ├─ risk_analyzer node (Groq / fallback)
+        ├─ remediation node (OpenRouter / fallback)
+        └─ format_response → JSON to CLI
+
+Daemon startup (sm enable):
+  IPC → Watcher.start() + Librarian.repomix_pack() [parallel]
+  → build_analysis_graph() [compile once]
+  → ready
+
+Agents (long-lived services):
+  WatcherAgent, LibrarianAgent — unchanged; graph nodes call them
 ```
 
-### Context Gatherer Response
+### Package layout (target)
 
-```json
-{
-  "request_id": "uuid",
-  "watcher": {},
-  "librarian": {"matches": []},
-  "timed_out": [],
-  "errors": {},
-  "partial": false,
-  "latency_ms": 42,
-  "agent_latency_ms": {"watcher": 5, "librarian": 34}
-}
-```
-
-### Analysis Response
-
-```json
-{
-  "request_id": "uuid",
-  "risk": "SAFE|LOW|MEDIUM|HIGH|CRITICAL",
-  "confidence": 0.0,
-  "message": "summary",
-  "explanation": "details",
-  "alternatives": [],
-  "context_used": {"watcher": false, "librarian": false},
-  "latency_ms": 0,
-  "stage_latency_ms": {}
-}
+```text
+orchestration/
+  __init__.py
+  state.py              # AnalysisState TypedDict
+  analysis_graph.py     # build_analysis_graph(), get_analysis_graph()
+  nodes/
+    deterministic.py    # sanitize, parse, rules, cache, format
+    supervisor.py       # supervisor_route, supervisor_node
+    workers.py          # watcher_node, librarian_node, merge_context
+    providers.py        # risk_analyzer_node, remediation_node
 ```
 
 ---
 
-## 8. Acceptance Criteria
+## 9. Data Contracts
 
-- `sm enable` starts a daemon, creates a session, shows progress via `/status`, and reaches ready state.
-- `sm -a echo hi` returns a SAFE/LOW result without requiring quotes.
-- `sm -a git status` includes git context when run in a git repo.
-- `sm -a rm ./some-file` queries Librarian when the file is inside the active project.
-- Agent context gathering returns within 500ms and marks slow agents as timed out.
-- Provider outage still returns a deterministic safety result.
-- `sm disable` stops the daemon and removes session-local files.
-- Invalid CLI input prints a suggestion and uses the documented usage exit code.
-- Bash, zsh, and PowerShell adapter smoke tests pass.
-- Unit and integration tests run without real provider credentials.
+### AnalysisState (LangGraph shared state)
+
+```python
+class AnalysisState(TypedDict, total=False):
+    command: str
+    request_id: str
+    cwd: str
+    # Pre-processing
+    sanitized_command: str
+    parsed: dict
+    rule_result: dict
+    cache_hit: bool
+    early_exit: Optional[str]
+    # Supervisor / workers
+    workers_requested: list[str]
+    watcher: dict
+    librarian: dict
+    timed_out: list[str]
+    errors: dict
+    partial: bool
+    agent_latency_ms: dict
+    # Analysis output
+    risk: str
+    confidence: float
+    message: str
+    explanation: str
+    alternatives: list
+    context_used: dict
+    stages: dict
+    # Control
+    next: str  # routing key for conditional edges
+```
+
+### IPC analyze response
+
+Unchanged shape (derived from final `AnalysisState` in `format_response` node).
+
+### Context gatherer response
+
+Unchanged — produced by partial graph run through `merge_context`.
 
 ---
 
-## 9. Post-MVP Parking Lot
+## 10. Acceptance Criteria
 
-- Persistent index with smart invalidation.
-- Multi-session/multi-directory daemon support.
-- Plugin API for third-party agents/providers.
-- `/deep-research` background endpoint and `sm research`.
-- Fuzzy search, semantic search, or embeddings.
-- `sm doctor`, richer metrics endpoint, and Prometheus export.
-- IDE integrations and collaboration features.
+### P0
+
+| ID | Criterion |
+|----|-----------|
+| AC-1 | `sm -a echo hi` works |
+| AC-LGR-1 | Analyze IPC invokes LangGraph; no direct `context_gatherer.gather()` in hot path |
+| AC-LGR-2 | Supervisor invokes Watcher + Librarian in parallel for `sm -a rm ./file` |
+| AC-LGR-3 | Rule match ≥0.9 early-exits graph before workers |
+| AC-LGR-4 | Graph completes with fallback when no API keys |
+| AC-LGR-5 | Worker timeout → `partial=true`, analysis still returns |
+| AC-3 | Enable loading + greeting |
+| AC-4 | Disable message |
+| AC-5 | Repomix pack lifecycle |
+
+### P1
+
+| ID | Criterion |
+|----|-----------|
+| AC-LGR-6 | Graph routing unit tests with mocked workers |
+| AC-10 | Context in provider prompts via graph state |
+
+---
+
+## 11. Remaining Work (prioritized)
+
+### P0
+
+| ID | Task | Effort |
+|----|------|--------|
+| **LGR-01** | **LangGraph: `AnalysisState`, nodes, `build_analysis_graph()`, wire IPC** | **L** |
+| LGR-02 | Deprecate `context_gatherer.py`; migrate tests | M |
+| LGR-03 | `pipeline.py` → thin wrapper over graph | S |
+| REP-01 | Repomix Librarian backend | M |
+| REL-01/02 | Provider nodes use graph state context | S |
+| ENB-01/02 | Enable UX + parallel agent startup | S |
+| DIS-01 | Disable message | S |
+| REL-04 | IPC session validation | S–M |
+| REL-06 | Test credential isolation | S |
+
+**L** = 2–3 days, **M** = 1 day, **S** = hours
+
+### P1
+
+WCH, UI, ADP, PKG, DOC, graph unit tests, optional LangSmith tracing
+
+### P2
+
+- LLM-based supervisor routing
+- LangGraph checkpointing / persistence
+- Context7 as graph node
+
+---
+
+## 12. Migration Plan (pipeline → LangGraph)
+
+1. Add `langgraph` + `langchain-core` to `pyproject.toml`
+2. Create `orchestration/state.py` with `AnalysisState`
+3. Implement deterministic nodes by extracting logic from `pipeline.py`
+4. Implement worker nodes calling existing Watcher/Librarian agents
+5. Implement supervisor + parallel edges + merge_context timeout
+6. Wire `daemon/server.py` analyze handler to `graph.ainvoke`
+7. Run existing e2e tests — must pass without behavior change
+8. Remove dead code from `context_gatherer.py` / slim `pipeline.py`
+
+---
+
+## 13. Post-MVP Parking Lot
+
+- LLM supervisor (Groq routes workers dynamically)
+- LangGraph Studio visual debugging
+- LangSmith tracing in CI
+- Hierarchical graphs (supervisor of supervisors)
+- Persistent RAG, multi-session, macOS CI, keychain, etc.
+
+---
+
+## 14. Author Notes → Spec Mapping
+
+| # | Note | Spec |
+|---|------|------|
+| 1 | `sm -a` no quotes | FR-1 |
+| 2 | Session RAG (Repomix) | FR-4, Librarian worker node |
+| 3 | Librarian → Main Agent | FR-7 LangGraph supervisor → workers → risk |
+| 4 | Watcher on demand | FR-7 supervisor routing |
+| 5 | Rich loading | FR-2 |
+| 6 | Enable until live | FR-2 |
+| 7 | Disable message | FR-3 |
+| 8 | Parallel agents | FR-7 LangGraph fan-out + enable startup |

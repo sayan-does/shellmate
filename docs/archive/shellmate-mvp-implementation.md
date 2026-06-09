@@ -25,7 +25,6 @@ Top-down approach: CLI → daemon → analysis pipeline → AI integration → c
 - [ ] Implement shell detection (bash/zsh/fish/powershell/cmd) via `$SHELL`, `$0`, and Windows registry checks → Verify: Detects current shell correctly
 - [ ] Implement environment detection (native/wsl/container/ssh) via `/proc/version`, `WSL_DISTRO_NAME`, container markers → Verify: Returns `native` on bare metal, `wsl` in WSL
 - [ ] Implement terminal detection via `$TERM_PROGRAM`, fallback to `unknown` → Verify: Detects Windows Terminal, iTerm2, or returns `unknown`
-- [ ] Add CLI command `shellmate doctor` that prints detected environment JSON → Verify: `shellmate doctor` shows correct environment
 
 ---
 
@@ -148,7 +147,6 @@ Top-down approach: CLI → daemon → analysis pipeline → AI integration → c
 - [ ] Add event tracking for all observability events in spec: environment.detected, rule.match, cache.hit/miss, provider.request/failure, documentation.retrieved, mcp.retrieved, daemon.lifecycle → Verify: Each event type logged
 - [ ] Implement log levels: DEBUG (all events), INFO (user-visible), WARNING (degraded), ERROR (failures) → Verify: Log level filtering works
 - [ ] Add performance metrics: command analysis duration, cache hit rate, provider latencies → Verify: Metrics logged to `~/.shellmate/metrics.json`
-- [ ] Create `shellmate doctor --verbose` to run diagnostics and output detailed health report → Verify: Shows environment, daemon status, provider connectivity, cache stats
 
 ---
 
