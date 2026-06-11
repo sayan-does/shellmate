@@ -58,6 +58,8 @@ test_secrets.py
 *.code-workspace
 .cursor/
 
+/docs/
+
 # Personal / internal dev tooling
 .opencode/
 
