@@ -4,7 +4,7 @@ Intelligent Command Safety Layer for Modern Terminals.
 
 **Version:** 2.0.0 (MVP)  
 **License:** MIT  
-**Python:** 3.8+
+**Python:** 3.10+
 
 ## Overview
 
@@ -520,7 +520,7 @@ sm -a echo hi --quiet → JSON only, no spinner
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - Groq API key (for AI risk analysis)
 - OpenRouter API key (for AI remediation)
 
@@ -529,7 +529,6 @@ sm -a echo hi --quiet → JSON only, no spinner
 - `click>=8.1.0`, `rich>=13.0.0`, `pyyaml>=6.0` — CLI and UI
 - `langgraph>=1.2.0`, `langchain-core>=1.4.0` — Orchestration
 - `groq>=0.4.0`, `openai>=1.0.0` — AI providers
-- `faiss-cpu>=1.7.4`, `sentence-transformers>=2.2.0` — Semantic cache
 - `aiohttp>=3.9.0` — Async HTTP
 - `psutil>=5.9.0`, `watchdog>=4.0.0` — Runtime monitoring
 
