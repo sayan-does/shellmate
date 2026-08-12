@@ -80,3 +80,8 @@ USER_FLOW_DEMO.md
 
 # Installers (not part of this project)
 *.exe
+
+
+#tests
+/spike_results/
+/tests/

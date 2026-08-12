@@ -1,0 +1,96 @@
+# Catastrophic commands requiring confirmation (NO API dependency)
+- id: "rm_rf_root"
+  category: "catastrophic"
+  instant: true
+  severity: "CRITICAL"
+  program: "rm"
+  flags: ["-rf", "-fr"]
+  arguments: ["^/$", "^/\\*$", "^~/$"]
+  message: "⚠️  DANGER: Deletes entire filesystem"
+  confirm_required: true
+
+- id: "git_push_force"
+  category: "catastrophic"
+  instant: true
+  severity: "CRITICAL"
+  program: "git"
+  subcommand: "push"
+  flags: ["--force", "-f"]
+  message: "⚠️  Rewrites remote history"
+  confirm_required: true
+
+- id: "dd_to_device"
+  category: "catastrophic"
+  instant: true
+  severity: "CRITICAL"
+  program: "dd"
+  arguments: ["of=/dev/sd", "of=/dev/nvme", "of=/dev/vd"]
+  message: "⚠️  Writes raw data to disk"
+  confirm_required: true
+
+- id: "drop_database"
+  category: "catastrophic"
+  instant: true
+  severity: "CRITICAL"
+  program: "mysql"
+  arguments: ["DROP\\s+DATABASE"]
+  message: "⚠️  Deletes entire database"
+  confirm_required: true
+
+- id: "chmod_777_recursive"
+  category: "catastrophic"
+  instant: true
+  severity: "HIGH"
+  program: "chmod"
+  flags: ["-R"]
+  arguments: ["777"]
+  message: "⚠️  Removes all security protections"
+  confirm_required: true
+
+- id: "git_reset_hard"
+  category: "catastrophic"
+  instant: true
+  severity: "HIGH"
+  program: "git"
+  subcommand: "reset"
+  flags: ["--hard"]
+  message: "⚠️  Discards all uncommitted changes"
+  confirm_required: true
+
+- id: "docker_rm_all"
+  category: "catastrophic"
+  instant: true
+  severity: "HIGH"
+  program: "docker"
+  subcommand: "rm"
+  flags: ["-f"]
+  arguments: ["\\$\\(docker ps", "\\$\\(docker container"]
+  message: "⚠️  Deletes all containers"
+  confirm_required: true
+
+- id: "kill_all_processes"
+  category: "catastrophic"
+  instant: true
+  severity: "HIGH"
+  program: "kill"
+  arguments: ["-9 -1", "-9 1"]
+  message: "⚠️  Kills all user processes"
+  confirm_required: true
+
+- id: "mkfs_on_device"
+  category: "catastrophic"
+  instant: true
+  severity: "CRITICAL"
+  program: "mkfs"
+  arguments: ["/dev/sd", "/dev/nvme", "/dev/vd"]
+  message: "⚠️  Formats disk device"
+  confirm_required: true
+
+- id: "curl_pipe_bash"
+  category: "catastrophic"
+  instant: true
+  severity: "HIGH"
+  program: "curl"
+  arguments: ["\\|\\s*bash", "\\|\\s*sh"]
+  message: "⚠️  Executes remote script"
+  confirm_required: true

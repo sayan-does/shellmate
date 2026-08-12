@@ -3,21 +3,19 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "shellmate"
-version = "2.0.0"
-description = "Intelligent Command Safety Layer for Modern Terminals"
+name = "shellmate-cli"
+version = "3.0.0"
+description = "Intelligent shell autocomplete with consequence preview"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
     {name = "ShellMate Contributors"}
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
-    "click>=8.1.0",
+    "click>=8.0",
     "pyyaml>=6.0",
     "aiohttp>=3.9.0",
-    "faiss-cpu>=1.7.4",
-    "sentence-transformers>=2.2.0",
     "groq>=0.4.0",
     "openai>=1.0.0",
     "numpy>=1.24.0",
@@ -28,29 +26,42 @@ dependencies = [
     "watchdog>=4.0.0",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Topic :: Utilities",
 ]
 
+[project.optional-dependencies]
+dev = ["build", "twine", "pytest", "pytest-asyncio"]
+
 [project.urls]
-Homepage = "https://github.com/shellmate/shellmate"
-Repository = "https://github.com/shellmate/shellmate"
-Documentation = "https://shellmate.readthedocs.io"
+Homepage = "https://github.com/sayan-does/shellmate"
+Repository = "https://github.com/sayan-does/shellmate"
 
 [project.scripts]
-sm = "cli.main:main"
-shellmate = "cli.main:main"
+sm = "shellmate.cli.main:main"
+shellmate = "shellmate.cli.main:main"
 
 [tool.setuptools.packages.find]
+where = ["."]
+include = ["shellmate*"]
 
 [tool.setuptools.package-data]
-"shellmate" = ["rules/definitions/*.yaml", "adapters/*.sh", "adapters/*.zsh", "adapters/*.ps1"]
+"shellmate" = [
+    "adapters/*.sh",
+    "adapters/*.zsh",
+    "adapters/*.ps1",
+    "agents/*.yaml",
+    "rules/*.yaml",
+    "rules/definitions/*.yaml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

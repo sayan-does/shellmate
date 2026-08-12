@@ -1,8 +1,10 @@
+# Dev/contributor convenience only. Authoritative deps are in pyproject.toml.
+# To install for development: pip install -e ".[dev]"
 click>=8.1.0
 pyyaml>=6.0
 aiohttp>=3.9.0
-faiss-cpu>=1.7.4
-sentence-transformers>=2.2.0
 groq>=0.4.0
 openai>=1.0.0
 numpy>=1.24.0
+psutil>=5.9.0
+watchdog>=3.0.0

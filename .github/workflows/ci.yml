@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    name: Build and validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install build tools
+        run: pip install --upgrade pip build twine
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Check metadata (twine)
+        run: twine check dist/*
+
+      - name: Install wheel
+        run: pip install dist/*.whl
+
+      - name: Smoke test CLI
+        run: |
+          sm --help
+          sm --version
+          python -c "from shellmate.cli.main import main; from shellmate.cache.semantic_cache import cache_lookup, cache_store"
+          python -c "from importlib.resources import files; assert files('shellmate').joinpath('adapters/ble_adapter.sh').is_file()"
+          python -c "from importlib.resources import files; assert files('shellmate').joinpath('rules/catastrophic.yaml').is_file()"
+          python -c "from importlib.resources import files; assert files('shellmate').joinpath('rules/definitions/filesystem.yaml').is_file()"
+          python -c "from importlib.resources import files; assert files('shellmate').joinpath('agents/chain_patterns.yaml').is_file()"
+
+      - name: Upload artifacts (3.11 only)
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+          retention-days: 7

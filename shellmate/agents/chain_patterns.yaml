@@ -1,0 +1,98 @@
+patterns:
+  # Terraform workflows
+  - name: terraform_workflow
+    sequence:
+      - pattern: "terraform plan"
+        required: true
+      - pattern: "terraform apply"
+        expected: true
+    risk_if_broken: HIGH
+    description: "Terraform apply should follow plan"
+  
+  # Git workflows
+  - name: git_force_push_workflow
+    sequence:
+      - pattern: "git (pull|fetch)"
+        required: true
+      - pattern: "git push.*--force"
+        expected: true
+    risk_if_broken: CRITICAL
+    description: "Force push should follow pull/fetch"
+  
+  - name: git_commit_workflow
+    sequence:
+      - pattern: "git add"
+        required: true
+      - pattern: "git commit"
+        expected: true
+      - pattern: "git push"
+        expected: true
+    risk_if_broken: MEDIUM
+    description: "Standard git workflow: add → commit → push"
+  
+  # Kubernetes workflows
+  - name: kubernetes_apply_workflow
+    sequence:
+      - pattern: "kubectl (create|apply) configmap"
+        required: false
+      - pattern: "kubectl apply.*deployment"
+        expected: true
+    risk_if_broken: HIGH
+    description: "Apply deployment after configmap"
+  
+  # Docker workflows
+  - name: docker_build_push_workflow
+    sequence:
+      - pattern: "docker build"
+        required: true
+      - pattern: "docker tag"
+        required: true
+      - pattern: "docker push"
+        expected: true
+    risk_if_broken: MEDIUM
+    description: "Docker image should be built and tagged before push"
+  
+  - name: docker_compose_workflow
+    sequence:
+      - pattern: "docker-compose (build|pull)"
+        required: true
+      - pattern: "docker-compose up"
+        expected: true
+    risk_if_broken: LOW
+    description: "Docker compose up should follow build/pull"
+  
+  # Database workflows
+  - name: database_backup_workflow
+    sequence:
+      - pattern: "(pg_dump|mysqldump|mongodump)"
+        required: true
+      - pattern: "DROP DATABASE"
+        expected: true
+    risk_if_broken: CRITICAL
+    description: "Database should be backed up before dropping"
+  
+  # Dangerous escalations
+  - name: dangerous_escalation_rm
+    sequence:
+      - pattern: "cd (/|/home|/var|/etc|/usr)"
+        required: true
+      - pattern: "rm.*-rf"
+        dangerous: true
+    risk_if_detected: CRITICAL
+    description: "rm -rf in sensitive directory"
+  
+  - name: dangerous_escalation_chmod
+    sequence:
+      - pattern: "chmod (777|666)"
+        dangerous: true
+    risk_if_detected: CRITICAL
+    description: "Overly permissive chmod"
+  
+  - name: dangerous_sudo_escalation
+    sequence:
+      - pattern: "sudo su"
+        required: true
+      - pattern: "(rm|del|DROP|truncate)"
+        dangerous: true
+    risk_if_detected: CRITICAL
+    description: "Destructive command after sudo su"

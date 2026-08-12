@@ -223,7 +223,7 @@ result = await graph.analyze_command("git push --force origin main")
 ### From PyPI (once published)
 
 ```bash
-pip install shellmate
+pip install shellmate-cli
 ```
 
 ### From source
@@ -234,9 +234,75 @@ cd shellmate
 pip install -e .
 ```
 
-## Quick Start (v2 CLI)
+## Quick Start
 
-### 1. Enable the daemon
+### Autocomplete Mode (Recommended)
+
+ShellMate shows **inline risk annotations** while you type (ble.sh on Linux/WSL, PSReadLine on Windows).
+
+#### Setup
+
+1. **Install ShellMate and run init wizard**
+   ```bash
+   pip install shellmate-cli
+   shellmate init   # or: sm init
+   ```
+   This will:
+   - Install ble.sh (Linux/WSL) or configure PowerShell hooks
+   - Configure API keys (optional)
+   - Integrate with your shell rc / profile
+
+2. **Start the daemon**
+   ```bash
+   sm enable
+   ```
+
+3. **Start typing!**
+   ```bash
+   $ git push --force
+   ⚠️ Rewrites history 🏭
+   ```
+
+#### Demo
+
+**Before (standard bash):**
+```bash
+$ git push --force origin main
+# No warning, executes immediately
+```
+
+**After (ShellMate autocomplete):**
+```bash
+$ git push --force
+⚠️ Rewrites history
+# Type again to confirm
+
+$ rm -rf /
+🔥 DANGER: Deletes entire filesystem - Type again to confirm
+```
+
+#### Features
+
+- **Instant catastrophic command detection** (<10ms, no API dependency)
+- **Debounced risk annotations** (~300ms after typing pause)
+- **Environment badges** (🏭 production, 🧪 staging, ⏰ business hours / 🌙 after hours)
+- **Query syntax**: `docker rm $(docker ps -aq) [?why dangerous]`
+- **Environment overrides**: `git reset --hard [@env=production]`
+
+See [docs/architecture.md](docs/architecture.md) for the two-tier pipeline and badge format.
+
+#### Migrating from intercept mode
+
+Preexec intercept mode (`SM_MODE=intercept`) has been removed. Autocomplete is the only supported mode.
+
+```bash
+sm migrate-to-autocomplete   # remove old hooks, install ble.sh / PowerShell hooks
+sm enable
+```
+
+On Windows without ble.sh, use PowerShell + PSReadLine (`sm init --install-hooks`). On Linux/WSL, ble.sh is required for autocomplete.
+
+### Enable the daemon (details)
 
 ```bash
 sm enable
@@ -293,6 +359,7 @@ sm uninstall
 
 | Command | Description |
 |---------|-------------|
+| `sm init` | First-run setup wizard (autocomplete mode) |
 | `sm -a <command>` | Analyze a command for safety |
 | `sm enable` | Start daemon and agents |
 | `sm disable` | Stop daemon and clean up |
@@ -300,6 +367,7 @@ sm uninstall
 | `sm config` | Configure API keys and settings |
 | `sm install` | Install shell hooks (bash/zsh/PowerShell) |
 | `sm uninstall` | Remove shell hooks |
+| `sm migrate-to-autocomplete` | Migrate from intercept to autocomplete mode |
 | `sm --help` | Show usage |
 | `sm --version` | Show version |
 | `sm --no-color <cmd>` | Run command with plain text output |
@@ -315,29 +383,22 @@ sm uninstall
 
 ## Shell Adapters
 
-Shell adapters enable automatic analysis of every command you type. When a command is classified as CRITICAL, the adapter prompts for confirmation before execution.
+Autocomplete adapters annotate risk while you type and gate catastrophic commands before Enter.
 
-### Supported shells
+### Supported surfaces
 
-- **Bash** (`adapters/bash_adapter.sh`)
-- **Zsh** (`adapters/zsh_adapter.zsh`)
-- **PowerShell** (`adapters/powershell_adapter.ps1`)
+- **Bash + ble.sh** (`adapters/ble_adapter.sh`) — primary Linux/WSL surface
+- **PowerShell + PSReadLine** (`adapters/powershell_adapter.ps1`) — primary Windows surface
+- **Legacy bash/zsh preexec** (`adapters/bash_adapter.sh`, `adapters/zsh_adapter.zsh`) — deprecated stubs; run `sm migrate-to-autocomplete`
 
 ### Install
 
 ```bash
-sm install
+sm init                 # wizard: keys + hooks
+sm init --install-hooks # hooks only (skip keys / ble install prompts as needed)
 ```
 
-Detects your current shell and appends the adapter source to your RC file (`.bashrc`, `.zshrc`, or `$PROFILE`).
-
-### Uninstall
-
-```bash
-sm uninstall
-```
-
-Removes the adapter block from your RC file.
+`sm install` / `sm uninstall` remain available for dry-run RC edits; prefer `sm init` for autocomplete setup.
 
 ### Dry-run mode
 
@@ -350,14 +411,11 @@ Shows what would be done without modifying files.
 
 ### Usage
 
-Once installed, the adapter calls `sm -a <command>` in the background. For CRITICAL commands you will see:
+With the daemon enabled, typing shows inline risk annotations. Catastrophic commands require confirmation before Enter. Use query syntax for what-if questions:
 
+```bash
+rm -rf /tmp/build [?what-if]
 ```
-[CRITICAL] This command is dangerous!
-Proceed? (y/N):
-```
-
-You can also prefix a command with `/s` to see suggestions or `/a` to bypass analysis.
 
 ## Configuration
 

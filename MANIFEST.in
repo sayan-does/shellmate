@@ -1,7 +1,8 @@
-include adapters/*.sh
-include adapters/*.zsh
-include adapters/*.ps1
-include rules/definitions/*.yaml
-include config/defaults.py
+include shellmate/adapters/*.sh
+include shellmate/adapters/*.zsh
+include shellmate/adapters/*.ps1
+include shellmate/rules/*.yaml
+include shellmate/rules/definitions/*.yaml
+include shellmate/agents/*.yaml
 include LICENSE
 include README.md
