@@ -1,6 +1,7 @@
 from shellmate.config.defaults import get_default_config, SHELLMATE_DIR
 from shellmate.config.credentials import (
     CREDENTIAL_KEYS,
+    AI_CREDENTIAL_KEYS,
     load_env,
     save_env,
     get_credential_status,
@@ -14,6 +15,7 @@ __all__ = [
     "get_default_config",
     "SHELLMATE_DIR",
     "CREDENTIAL_KEYS",
+    "AI_CREDENTIAL_KEYS",
     "load_env",
     "save_env",
     "get_credential_status",

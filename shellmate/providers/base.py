@@ -6,6 +6,7 @@ from typing import Optional
 PROVIDER_CREDENTIAL_KEYS = {
     "groq": "GROQ_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "xai": "XAI_API_KEY",
 }
 
 

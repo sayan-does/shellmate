@@ -10,20 +10,37 @@ CREDENTIAL_KEYS = {
         "description": "For AI risk analysis (get at https://console.groq.com/keys)",
         "doc_url": "https://console.groq.com/keys",
         "required": False,
+        "provider": "groq",
+        "live_check": True,
     },
     "OPENROUTER_API_KEY": {
         "label": "OpenRouter API Key",
         "description": "For AI remediation suggestions (get at https://openrouter.ai/keys)",
         "doc_url": "https://openrouter.ai/keys",
         "required": False,
+        "provider": "openrouter",
+        "live_check": True,
+    },
+    "XAI_API_KEY": {
+        "label": "Grok (xAI) API Key",
+        "description": "For AI risk analysis and remediation (get at https://console.x.ai/)",
+        "doc_url": "https://console.x.ai/",
+        "required": False,
+        "provider": "xai",
+        "live_check": True,
     },
     "CONTEXT7_API_KEY": {
         "label": "Context7 API Key",
         "description": "For documentation lookup (get at https://context7.com)",
         "doc_url": "https://context7.com",
         "required": False,
+        "provider": "context7",
+        "live_check": False,
     },
 }
+
+# AI providers that can power risk/remediation (excludes optional Context7)
+AI_CREDENTIAL_KEYS = ("GROQ_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY")
 
 
 def load_env() -> dict:

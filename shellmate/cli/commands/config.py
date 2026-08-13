@@ -7,16 +7,23 @@ from rich.table import Table
 
 from shellmate.config import (
     get_config,
-    get_config_value,
     set_config_value,
     CREDENTIAL_KEYS,
     load_env,
     save_env,
     get_credential_status,
-    get_api_key,
 )
+from shellmate.config.credentials import AI_CREDENTIAL_KEYS
+from shellmate.providers.validate_keys import validate_api_key
 
 console = Console()
+
+_PROVIDER_MENU = [
+    ("GROQ_API_KEY", "Groq"),
+    ("OPENROUTER_API_KEY", "OpenRouter"),
+    ("XAI_API_KEY", "Grok (xAI)"),
+    ("CONTEXT7_API_KEY", "Context7 (optional)"),
+]
 
 
 def _is_interactive():
@@ -51,9 +58,10 @@ def config():
         return
 
     _display_config_table()
-    show_all = "--all" in args
     if _is_interactive():
-        _interactive_config(show_all)
+        _interactive_config()
+    else:
+        _validate_existing_keys(report_only=True)
 
 
 def _display_config_table():
@@ -85,12 +93,14 @@ def _display_config_table():
     table2.add_column("Fallbacks", style="dim")
 
     providers = cfg.get("providers", {})
-    for role, config in providers.items():
-        fallbacks = config.get("fallbacks") or ([config["fallback"]] if config.get("fallback") else [])
+    for role, role_cfg in providers.items():
+        fallbacks = role_cfg.get("fallbacks") or (
+            [role_cfg["fallback"]] if role_cfg.get("fallback") else []
+        )
         table2.add_row(
             role,
-            config.get("primary", ""),
-            config.get("model", ""),
+            role_cfg.get("primary", ""),
+            role_cfg.get("model", ""),
             ", ".join(fallbacks) if fallbacks else "none",
         )
 
@@ -109,11 +119,9 @@ def _display_config_table():
             console.print(f"  {section}: {values}")
 
     console.print()
-    console.print("[dim]Use 'sm config <KEY> <VALUE>' to set a credential[/dim]")
-    console.print("[dim]Use 'sm config provider <role> <primary> <model>' to set provider[/dim]")
-    console.print("[dim]Use 'sm config --all' to update all credentials (including already-set)[/dim]")
-    console.print("[dim]Use 'sm config --show' to view credential values (masked)[/dim]")
-    console.print("[dim]Run 'sm config' with no args for guided credential setup[/dim]")
+    console.print("[dim]Run 'sm config' interactively to select a provider and paste an API key.[/dim]")
+    console.print("[dim]Use 'sm config provider <role> <primary> [model]' to set provider roles.[/dim]")
+    console.print("[dim]Use 'sm config --show' to view credential values (masked).[/dim]")
 
 
 def _show_config():
@@ -128,61 +136,138 @@ def _show_config():
         else:
             console.print(f"  [cyan]{label}:[/cyan] [dim]not set[/dim]")
     console.print()
-    console.print("[dim]Use 'sm config <KEY> <VALUE>' to set a credential[/dim]")
-    console.print("[dim]Run 'sm config' for guided setup[/dim]")
+    console.print("[dim]Run 'sm config' for guided setup (select provider, then paste key).[/dim]")
 
 
-def _interactive_config(show_all: bool = False):
+def _resolve_key_value(env: dict, key: str) -> str:
+    return (env.get(key) or os.environ.get(key) or "").strip()
+
+
+def _validate_existing_keys(*, report_only: bool = False) -> None:
     env = load_env()
-    changed = False
+    configured = [
+        key for key in CREDENTIAL_KEYS
+        if _resolve_key_value(env, key)
+    ]
+    if not configured:
+        if not report_only:
+            console.print()
+            console.print("[yellow]No API keys configured yet.[/yellow]")
+            console.print(
+                "[dim]Select a provider below and paste a key "
+                "(Groq, OpenRouter, or Grok/xAI).[/dim]"
+            )
+        return
 
-    for key, meta in CREDENTIAL_KEYS.items():
-        current = env.get(key, "")
-        if current and not show_all:
+    console.print()
+    console.print("[bold]Checking API keys…[/bold]")
+    for key in configured:
+        meta = CREDENTIAL_KEYS.get(key, {})
+        label = meta.get("label", key)
+        value = _resolve_key_value(env, key)
+        with console.status(f"[cyan]Validating {label}…[/cyan]", spinner="dots"):
+            ok, message = validate_api_key(key, value)
+        if ok:
+            console.print(f"  [green]✔ {label}:[/green] {message}")
+        else:
+            console.print(f"  [red]✖ {label}:[/red] {message}")
+
+
+def _interactive_config():
+    env = load_env()
+    _validate_existing_keys()
+
+    has_ai_key = any(_resolve_key_value(env, k) for k in AI_CREDENTIAL_KEYS)
+    if not has_ai_key:
+        console.print()
+        console.print(
+            "[yellow]At least one of Groq, OpenRouter, or Grok (xAI) is recommended.[/yellow]"
+        )
+
+    changed = False
+    while True:
+        console.print()
+        console.print("[bold]Add or replace an API key[/bold]")
+        for i, (key, name) in enumerate(_PROVIDER_MENU, start=1):
+            current = _resolve_key_value(env, key)
+            status = (
+                f"[green]set ({_mask_key_for_prompt(current)})[/green]"
+                if current
+                else "[dim]not set[/dim]"
+            )
+            console.print(f"  [cyan]{i}.[/cyan] {name}  {status}")
+        console.print("  [cyan]0.[/cyan] Done")
+
+        choice = click.prompt("Select provider", default="0", show_default=True).strip()
+        if choice in ("0", "", "done", "Done", "q", "quit"):
+            break
+
+        try:
+            idx = int(choice)
+        except ValueError:
+            console.print("[red]Invalid selection[/red]")
             continue
 
-        label = meta.get("label", key)
-        doc_url = meta.get("doc_url", "")
-        description = meta.get("description", "")
-        required = meta.get("required", False)
+        if idx < 1 or idx > len(_PROVIDER_MENU):
+            console.print("[red]Invalid selection[/red]")
+            continue
 
-        console.print()
-        # Guidance box with key source link
-        guidance_lines = [f"[bold]{label}[/bold]", f"  {description}"]
-        if doc_url:
-            guidance_lines.append(f"  [dim]Get your key at:[/dim] [cyan underline]{doc_url}[/cyan underline]")
-        if current:
-            guidance_lines.append(f"  [dim]Current: {_mask_key_for_prompt(current)}[/dim]")
-        console.print(Panel(
-            "\n".join(guidance_lines),
-            border_style="dim",
-            padding=(0, 2),
-        ))
-
-        prompt_text = f"  Enter {label}" + (" [dim](leave empty to skip)[/dim]" if not required else "")
-        value = click.prompt(prompt_text, default="", hide_input=True, show_default=False)
-
-        if value:
-            # Validation spinner
-            import time
-            with console.status(f"[cyan]Validating {label}…[/cyan]", spinner="dots"):
-                time.sleep(0.4)   # brief pause; extend with real API ping if available
-            env[key] = value
+        key, name = _PROVIDER_MENU[idx - 1]
+        if _prompt_and_save_key(env, key, name):
             changed = True
-            console.print(f"  [green]✔ {label} saved[/green]")
-        elif current:
-            console.print(f"  [dim]Keeping existing value[/dim]")
-        else:
-            console.print(f"  [dim]Skipped[/dim]")
+            env = load_env()
 
+    console.print()
     if changed:
-        save_env(env)
-        console.print()
         console.print("[green]✔ Credentials saved![/green]")
         console.print("[dim]Next step:[/dim] run [bold cyan]sm enable[/bold cyan] to start the daemon.")
     else:
-        console.print()
         console.print("[dim]No changes made[/dim]")
+
+
+def _prompt_and_save_key(env: dict, key: str, name: str) -> bool:
+    meta = CREDENTIAL_KEYS.get(key, {})
+    label = meta.get("label", name)
+    doc_url = meta.get("doc_url", "")
+    description = meta.get("description", "")
+    current = _resolve_key_value(env, key)
+
+    guidance_lines = [f"[bold]{label}[/bold]", f"  {description}"]
+    if doc_url:
+        guidance_lines.append(
+            f"  [dim]Get your key at:[/dim] [cyan underline]{doc_url}[/cyan underline]"
+        )
+    if current:
+        guidance_lines.append(f"  [dim]Current: {_mask_key_for_prompt(current)}[/dim]")
+    console.print()
+    console.print(Panel("\n".join(guidance_lines), border_style="dim", padding=(0, 2)))
+
+    value = click.prompt(
+        f"  Paste {label} (leave empty to cancel)",
+        default="",
+        hide_input=True,
+        show_default=False,
+    ).strip()
+    if not value:
+        console.print("  [dim]Cancelled[/dim]")
+        return False
+
+    with console.status(f"[cyan]Validating {label}…[/cyan]", spinner="dots"):
+        ok, message = validate_api_key(key, value)
+
+    if not ok:
+        console.print(f"  [red]✖ {message}[/red]")
+        if not click.confirm("  Save this key anyway?", default=False):
+            console.print("  [dim]Not saved[/dim]")
+            return False
+        console.print(f"  [yellow]Saved without successful validation[/yellow]")
+    else:
+        console.print(f"  [green]✔ {message}[/green]")
+
+    env[key] = value
+    save_env(env)
+    console.print(f"  [green]✔ {label} saved[/green]")
+    return True
 
 
 def _mask_key_for_prompt(key: str) -> str:

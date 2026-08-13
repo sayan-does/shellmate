@@ -1,226 +1,31 @@
-# ShellMate v2.0
+# ShellMate
 
-Intelligent Command Safety Layer for Modern Terminals.
+Intelligent shell autocomplete with consequence preview.
 
-**Version:** 2.0.0 (MVP)  
+**Version:** 3.0.0  
+**Package:** [`shellmate-cli`](https://pypi.org/project/shellmate-cli/)  
 **License:** MIT  
 **Python:** 3.10+
 
-## Overview
+ShellMate watches what you type and shows **inline risk annotations** before you press Enter. A background daemon analyzes commands with deterministic rules, an exact-match cache, and a LangGraph pipeline that pulls project context plus Groq / OpenRouter / Grok (xAI) for AI risk and remediation.
 
-ShellMate is a session-based, context-aware command safety layer for the terminal. It analyzes shell commands for safety using deterministic rules, semantic caching, and a **multi-agent context layer** orchestrated by **LangGraph**. AI providers (Groq for risk analysis and routing, OpenRouter for remediation) run only when early-exit checks do not already produce a confident answer.
-
-When you run `sm enable`, a background daemon starts long-running **Watcher** and **Librarian** agents. Each `sm -a <command>` request flows through a compiled `StateGraph` that decides—per command—whether to gather context, which agents to query, and whether to invoke AI providers.
-
-## Agent Architecture & Orchestration
-
-ShellMate v2 separates **runtime agents** (background workers that index and observe the project) from **graph nodes** (deterministic and AI steps that run per analysis request). [LangGraph](https://langchain-ai.github.io/langgraph/) ties them together via a shared `AnalysisState` that flows through every node.
-
-### Request flow
+## How it works
 
 ```
-sm -a <command>
-    → CLI (click)
-    → IPC client (TCP 127.0.0.1:9823)
-    → Daemon server
-    → AnalysisGraph.ainvoke()
-    → Rich terminal output (or JSON with --quiet)
+You type in the shell
+    → ble.sh (Linux/WSL) or PSReadLine (Windows) adapter
+    → IPC to daemon (TCP 127.0.0.1:9823)
+    → LangGraph analysis pipeline
+    → Inline annotation / confirmation gate
 ```
 
-The daemon owns agent lifecycle (`sm enable` / `sm disable`). The LangGraph runs inside the daemon process on each `/analyze` request and queries agents over in-process async queues—not separate processes.
-
-### LangGraph analysis pipeline
-
-The graph is defined in `orchestration/analysis_graph.py` as a `StateGraph(AnalysisState)` with conditional routing for early exits and context gathering. This matches LangGraph’s model: **nodes** mutate state, **edges** define order, and **conditional edges** branch on router functions.
-
-```mermaid
-flowchart TD
-    START([__start__]) --> sanitize
-
-    sanitize["sanitize<br/><i>typo + syntax check</i>"]
-    parse["parse<br/><i>shlex tokenize</i>"]
-    rules["rules<br/><i>YAML rule engine</i>"]
-    cache["cache<br/><i>FAISS semantic lookup</i>"]
-    supervisor["supervisor<br/><i>Groq routing (500ms)</i>"]
-    context_worker["context_worker<br/><i>parallel agent queries</i>"]
-    risk_analyzer["risk_analyzer<br/><i>Groq risk model</i>"]
-    remediation["remediation<br/><i>OpenRouter alternatives</i>"]
-    command_guide["command_guide<br/><i>Groq intent guide</i>"]
-    format["format<br/><i>merge + early-exit output</i>"]
-    END_NODE([__end__])
-
-    sanitize --> parse --> rules --> cache
-
-    cache -->|early_exit_sanitizer| format
-    cache -->|early_exit_rule| format
-    cache -->|early_exit_cache| format
-    cache -->|needs_context| supervisor
-
-    supervisor -->|context_worker| context_worker
-    supervisor -->|skip_context| risk_analyzer
-
-    context_worker --> risk_analyzer
-    risk_analyzer --> remediation --> command_guide --> format
-    format --> END_NODE
-
-    subgraph agents["Context worker (500ms budget)"]
-        direction LR
-        W["Watcher<br/>OS · shell · git · stack"]
-        L["Librarian<br/>file index search"]
-        R["Repomix<br/>pack snippet search"]
-    end
-
-    context_worker -.-> W
-    context_worker -.-> L
-    context_worker -.-> R
-```
-
-#### Node reference
-
-| Node | Type | Role |
-|------|------|------|
-| `sanitize` | Deterministic | Detects typos, trailing characters, and shell syntax errors |
-| `parse` | Deterministic | Tokenizes the command (`program`, flags, arguments, pipes) |
-| `rules` | Deterministic | Matches YAML rules (`rules/definitions/*.yaml`) with severity + confidence |
-| `cache` | Deterministic | Semantic cache hit via FAISS + sentence-transformers |
-| `supervisor` | AI (Groq) | Fast model routes whether to run Watcher and/or Librarian |
-| `context_worker` | Agent I/O | Queries agents in parallel under a 500ms timeout |
-| `risk_analyzer` | AI (Groq) | Produces risk level, confidence, and reasoning |
-| `remediation` | AI (OpenRouter) | Suggests safer command alternatives |
-| `command_guide` | AI (Groq) | Optional “what you probably meant” guide for ambiguous commands |
-| `format` | Deterministic | Merges rule + AI results, applies early-exit shortcuts, builds JSON output |
-
-#### Early exits (skip AI providers)
-
-Before the supervisor runs, `early_exit_router` can send the graph straight to `format`:
-
-| Condition | Route | Example |
-|-----------|-------|---------|
-| Sanitizer proposes a correction | `early_exit_sanitizer` | Trailing `;` or obvious typo |
-| Rule match with confidence ≥ 90% | `early_exit_rule` | `rm -rf /` |
-| Semantic cache hit | `early_exit_cache` | Repeated identical command |
-
-These paths keep common dangerous commands and cache hits under ~50ms without calling Groq or OpenRouter.
-
-#### Supervisor routing
-
-The `supervisor` node uses a small Groq model (`llama-3.1-8b-instant` by default) to return JSON:
-
-```json
-{"run_watcher": true, "run_librarian": false}
-```
-
-- **With `GROQ_API_KEY`**: AI decides per command (500ms timeout).
-- **Without API key**: Heuristic fallback (`_needs_context`) checks for file paths, `git`, `docker`, `pip`, etc.
-
-If the supervisor fails or times out, the graph sets `supervisor_fallback` and skips context gathering rather than blocking analysis.
-
-### Shared state (`AnalysisState`)
-
-All nodes read and write the same typed state (`orchestration/state.py`):
-
-| Field | Set by | Used for |
-|-------|--------|----------|
-| `command` | CLI / IPC | Original user input |
-| `sanitized`, `parsed` | Early nodes | Normalized command + structure |
-| `rule_match`, `cached` | rules, cache | Early-exit decisions |
-| `supervisor_decision` | supervisor | Which agents to query |
-| `watcher_context`, `librarian_context` | context_worker | Per-agent payloads |
-| `merged_context` | context_worker | Combined context for AI prompts |
-| `risk_analysis`, `remediation`, `command_guide` | AI nodes | Provider outputs |
-| `stages`, `agent_latency` | All nodes | Per-stage timing in response |
-| `output` | format | Final structured result |
-
-LangGraph compiles the graph with `MemorySaver` checkpointer; each invoke uses `thread_id: "main"` for the single-session MVP.
-
-### Long-running agents
-
-Agents implement the `Agent` base class (`agents/base.py`): async request queue, timeout handling, and `READY` / `ERROR` status. `AgentManager` registers and starts them when the daemon boots.
-
-#### Watcher (`agents/watcher.py`)
-
-Collects **environment context** once at startup and serves cached snapshots on `get_context`:
-
-- OS, shell, terminal, interactive mode
-- Git branch, dirty state, recent commits
-- Tech stack detection (`package.json`, `pyproject.toml`, `Cargo.toml`, etc.)
-
-Secrets are redacted before the context leaves the agent (`config/secrets.py`).
-
-#### Librarian (`agents/librarian.py`)
-
-Builds an in-memory **project file index** on `sm enable` (up to 5,000 files):
-
-- Keyword search over paths and filenames
-- Optional `watchdog` file watcher for incremental re-indexing
-- Excludes `node_modules`, `.git`, caches, and binary artifacts
-
-On `search`, returns ranked path matches with snippets for the command string.
-
-#### Repomix backend (`agents/repomix_backend.py`)
-
-Generates a **repomix-style pack** (`repomix_pack.txt` in the session dir) at daemon startup—a concatenated, redacted snapshot of eligible source files. The `context_worker` runs Repomix search in parallel with Librarian to surface deeper code snippets when filenames alone are insufficient.
-
-### Context worker parallelism
-
-`context_worker_node` is the bridge between LangGraph and agents:
-
-```python
-# Simplified from orchestration/analysis_graph.py
-tasks = {}
-if run_watcher:
-    tasks["watcher"] = asyncio.create_task(_query_watcher(command))
-if run_librarian:
-    tasks["librarian"] = asyncio.create_task(_query_librarian(command))
-    tasks["repomix"] = asyncio.create_task(_query_repomix(command))
-
-done, pending = await asyncio.wait(tasks.values(), timeout=0.5)
-```
-
-Slow agents are cancelled; `merged_context.partial = true` signals degraded context to downstream AI nodes. Analysis continues either way—ShellMate prefers a fast, partial answer over waiting on context.
-
-### Provider layer
-
-Graph nodes call providers through `providers/router.py`:
-
-| Stage | Provider | Fallback |
-|-------|----------|----------|
-| Supervisor | Groq (`groq_supervisor.py`) | Heuristic `_needs_context` |
-| Risk analysis | Groq (`groq_provider.py`) | Deterministic MEDIUM + message |
-| Remediation | OpenRouter (`openrouter_provider.py`) | Groq command guide, then generic text |
-| Command guide | Groq (`groq_command_guide.py`) | Skipped if Groq unavailable |
-
-Provider failures never crash the graph; `format` always returns a structured response with `provider: "fallback"` when AI is unavailable.
-
-### Compiling and invoking the graph
-
-```python
-from orchestration.analysis_graph import get_analysis_graph
-
-graph = get_analysis_graph()
-result = await graph.analyze_command("git push --force origin main")
-# result: {risk, confidence, message, alternatives, latency, context_used, ...}
-```
-
-`daemon/pipeline.py` delegates all analysis to this graph (legacy linear pipeline remains as import fallback only).
-
-### Design principles
-
-1. **Deterministic first** — Rules, sanitizer, and cache resolve most clear-cut cases without API cost.
-2. **Context on demand** — Supervisor avoids indexing and env scans for trivial commands like `echo hello`.
-3. **Bounded latency** — 500ms cap on context gathering; partial context beats slow analysis.
-4. **Fail open on context, fail safe on risk** — Missing context degrades gracefully; known-dangerous rules still fire at high confidence.
-5. **Secret hygiene** — Redaction runs on agent output, Repomix packs, and logs before any AI prompt.
-
-## Documentation
-
-- **Requirements & Design**: [docs/shellmate-v2-requirements-design.md](docs/shellmate-v2-requirements-design.md)
-- **Implementation Tasks**: [docs/v2-implementation-tasks.md](docs/v2-implementation-tasks.md)
-- **Implementation Report**: [docs/v2-implementation-report.md](docs/v2-implementation-report.md)
+1. **Instant catastrophic check** — local YAML rules (`rules/catastrophic.yaml`), no API.
+2. **Debounced partial analysis** — after a short pause while typing.
+3. **Full analysis** — rules → cache → AI + context agents when risk is unclear.
 
 ## Installation
 
-### From PyPI (once published)
+### From PyPI
 
 ```bash
 pip install shellmate-cli
@@ -229,308 +34,277 @@ pip install shellmate-cli
 ### From source
 
 ```bash
-git clone https://github.com/shellmate/shellmate.git
+git clone https://github.com/sayan-does/shellmate.git
 cd shellmate
 pip install -e .
 ```
 
-## Quick Start
+## Quick start
 
-### Autocomplete Mode (Recommended)
+### 1. Prerequisites
 
-ShellMate shows **inline risk annotations** while you type (ble.sh on Linux/WSL, PSReadLine on Windows).
+| Platform | Required |
+|----------|----------|
+| Linux / WSL | [ble.sh](https://github.com/akinomyoga/ble.sh) (e.g. under `~/.local/share/blesh/ble.sh`) |
+| Windows | PowerShell with PSReadLine |
+| All | At least one of `GROQ_API_KEY`, `OPENROUTER_API_KEY`, or `XAI_API_KEY` |
 
-#### Setup
+### 2. Install hooks and configure keys
 
-1. **Install ShellMate and run init wizard**
-   ```bash
-   pip install shellmate-cli
-   shellmate init   # or: sm init
-   ```
-   This will:
-   - Install ble.sh (Linux/WSL) or configure PowerShell hooks
-   - Configure API keys (optional)
-   - Integrate with your shell rc / profile
-
-2. **Start the daemon**
-   ```bash
-   sm enable
-   ```
-
-3. **Start typing!**
-   ```bash
-   $ git push --force
-   ⚠️ Rewrites history 🏭
-   ```
-
-#### Demo
-
-**Before (standard bash):**
 ```bash
-$ git push --force origin main
-# No warning, executes immediately
+sm install          # copy adapter → ~/.shellmate/adapters/ and append RC/profile hook
+sm config           # select provider (Groq / OpenRouter / Grok xAI), paste API key
 ```
 
-**After (ShellMate autocomplete):**
+Dry-run without changing files:
+
+```bash
+sm install --dry-run
+```
+
+### 3. Start the daemon
+
+```bash
+sm enable
+```
+
+Starts the daemon for the current directory (Watcher, Librarian, and other agents). Check with `sm status`.
+
+### 4. Type normally
+
+Inline annotations appear under the line as you type. Catastrophic commands require a second Enter to confirm.
+
+### 5. Stop / remove
+
+```bash
+sm disable          # stop daemon
+sm uninstall        # remove shell hooks (keeps config)
+```
+
+## Autocomplete features
+
+ShellMate’s main UX is **in-shell autocomplete annotations** (not a separate `sm -a` command). Adapters hook ble.sh or PSReadLine and talk to the daemon over IPC.
+
+### Two-phase typing feedback
+
+| Phase | Latency | What happens |
+|-------|---------|--------------|
+| **1 — Instant** | &lt;10ms, no API | `/instant-check` against `rules/catastrophic.yaml`. Blocking commands get an immediate annotation. |
+| **2 — Debounced** | ~300ms after you pause | `/analyze-partial` runs the analysis pipeline and **replaces** the annotation in place with risk + badges. |
+
 ```bash
 $ git push --force
-⚠️ Rewrites history
-# Type again to confirm
+[!] rewrites history [PROD] BH
 
 $ rm -rf /
-🔥 DANGER: Deletes entire filesystem - Type again to confirm
+[!] BLOCKING - Type again to confirm
 ```
 
-#### Features
+### Consequence preview (Tab × 2)
 
-- **Instant catastrophic command detection** (<10ms, no API dependency)
-- **Debounced risk annotations** (~300ms after typing pause)
-- **Environment badges** (🏭 production, 🧪 staging, ⏰ business hours / 🌙 after hours)
-- **Query syntax**: `docker rm $(docker ps -aq) [?why dangerous]`
-- **Environment overrides**: `git reset --hard [@env=production]`
+1. **First Tab** — completion / ghost-text suggestion  
+2. **Second Tab** — accept suggestion and show a **consequence preview** below the prompt:
 
-See [docs/architecture.md](docs/architecture.md) for the two-tier pipeline and badge format.
-
-#### Migrating from intercept mode
-
-Preexec intercept mode (`SM_MODE=intercept`) has been removed. Autocomplete is the only supported mode.
-
-```bash
-sm migrate-to-autocomplete   # remove old hooks, install ble.sh / PowerShell hooks
-sm enable
+```text
+  → Force-pushes and rewrites remote history
+  → Reversible: No  |  remote: origin/main
+  → Safe alt: git push --force-with-lease
 ```
 
-On Windows without ble.sh, use PowerShell + PSReadLine (`sm init --install-hooks`). On Linux/WSL, ble.sh is required for autocomplete.
+On HIGH / CRITICAL / blocking severity, Enter is gated until you confirm again.
 
-### Enable the daemon (details)
+| Platform | Completion surface |
+|----------|-------------------|
+| Linux / WSL (ble.sh) | Tab bound to ShellMate complete widget |
+| PowerShell 7.2+ | PSReadLine predictor (`powershell_predictor.ps1`) when available |
+| PowerShell 5.1 | Tab handler ghost-text fallback |
 
-```bash
-sm enable
-```
+### Double-Enter confirmation
 
-Starts the background daemon, spawns Watcher and Librarian agents, checks providers, and shows a Rich startup progress UI. The daemon listens on `127.0.0.1:9823`.
+Dangerous commands do not run on the first Enter:
 
-### 2. Analyze commands (no quotes needed)
+1. First Enter → blocked; annotation asks you to confirm  
+2. Second Enter (same command) → allowed  
 
-```bash
-sm -a rm -rf /
-sm -a git push origin main
-sm -a curl https://example.com | bash
-sm -a pip install requests
-```
+Applies to catastrophic instant matches and to HIGH/CRITICAL consequence previews.
 
-Everything after `-a` is treated as the raw command — pipes, redirects, quotes, and flags are preserved.
+### Annotation badges
 
-### 3. Check daemon status
+Short inline text under the command (ASCII-safe on all platforms):
 
-```bash
-sm status
-```
+| Kind | Examples |
+|------|----------|
+| Risk | `[OK]` `[i]` `[!]` `[!!]` `[X]` |
+| Environment | `[PROD]` `[STAGE]` `[DEV]` `[CI]` |
+| Time | `BH` (business hours) · `AH` (after hours) |
+| Chain / consequence | `[BROKEN]` `[ESCALATION]` `[IRREVERSIBLE]` |
 
-Shows daemon uptime, startup stage, agent status, and provider configuration.
+### Bracket syntax
 
-### 4. Configure API keys
+Typed as part of the command line; adapters/daemon strip and honor them:
 
-```bash
-sm config
-```
+| Syntax | Purpose | Example |
+|--------|---------|---------|
+| `[?…]` | Ask a question about the command | `docker rm $(docker ps -aq) [?why dangerous]` |
+| `[!…]` | Directive to the analyzer | `rm -rf /tmp [!force]` |
+| `[@key=value]` | Override context (e.g. environment) | `git reset --hard [@env=production]` |
 
-Prompts for Groq API key (risk analysis) and OpenRouter API key (remediation). Keys are stored in a `.env` file with restricted permissions.
+### Surfaces
 
-### 5. Disable the daemon
+| Adapter | Shell | Role |
+|---------|-------|------|
+| `ble_adapter.sh` | bash/zsh + ble.sh | Primary Linux/WSL autocomplete |
+| `powershell_adapter.ps1` | PowerShell + PSReadLine | Primary Windows autocomplete |
+| `powershell_predictor.ps1` | PowerShell 7.2+ | Optional ghost-text predictor |
+| `bash_adapter.sh` / `zsh_adapter.zsh` | — | Deprecated stubs |
 
-```bash
-sm disable
-```
+Requires at least one of `GROQ_API_KEY`, `OPENROUTER_API_KEY`, or `XAI_API_KEY` for AI annotations and consequence previews. Instant catastrophic checks still use local rules.
 
-Stops the daemon, removes session files, deletes the Repomix pack. Prints "ShellMate has been disabled."
-
-### 6. Shell adapters (optional)
-
-```bash
-# Install shell hooks
-sm install
-
-# Remove shell hooks
-sm uninstall
-```
-
-## CLI Commands
+## CLI
 
 | Command | Description |
 |---------|-------------|
-| `sm init` | First-run setup wizard (autocomplete mode) |
-| `sm -a <command>` | Analyze a command for safety |
-| `sm enable` | Start daemon and agents |
-| `sm disable` | Stop daemon and clean up |
-| `sm status` | Show daemon/provider/credential status |
-| `sm config` | Configure API keys and settings |
-| `sm install` | Install shell hooks (bash/zsh/PowerShell) |
+| `sm install` | Install shell hooks (bash/zsh → ble adapter, PowerShell → PS adapter) |
 | `sm uninstall` | Remove shell hooks |
-| `sm migrate-to-autocomplete` | Migrate from intercept to autocomplete mode |
-| `sm --help` | Show usage |
-| `sm --version` | Show version |
-| `sm --no-color <cmd>` | Run command with plain text output |
+| `sm config` | Configure API keys and settings |
+| `sm enable` | Start daemon (autocomplete mode) |
+| `sm disable` | Stop daemon and clean session |
+| `sm status` | Daemon, agents, providers, credentials |
+| `sm --help` | Help |
+| `sm --version` | Version |
+| `sm --no-color <cmd>` | Plain text output |
 
-### Exit Codes
+### `sm config` usages
+
+```bash
+sm config                        # validate existing keys; select provider → paste key
+sm config --show                 # masked credentials
+sm config provider risk_analysis xai grok-3-mini   # set provider role
+sm config cache.max_entries 200  # YAML override (dotted key)
+```
+
+Interactive setup asks you to pick Groq, OpenRouter, or Grok (xAI), then paste the key. Existing keys are checked against the provider API.
+### Exit codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 2 | Usage error (bad args) |
-| 3 | Temporary error (daemon unavailable) |
+| 2 | Usage error |
+| 3 | Temporary error (e.g. interrupt) |
 | 4 | Internal error |
 
-## Shell Adapters
+## Shell adapters
 
-Autocomplete adapters annotate risk while you type and gate catastrophic commands before Enter.
+See [Autocomplete features](#autocomplete-features) for behavior. `sm install` copies the ble or PowerShell adapter into `~/.shellmate/adapters/` and appends a source line to your RC / profile.
 
-### Supported surfaces
+## Architecture
 
-- **Bash + ble.sh** (`adapters/ble_adapter.sh`) — primary Linux/WSL surface
-- **PowerShell + PSReadLine** (`adapters/powershell_adapter.ps1`) — primary Windows surface
-- **Legacy bash/zsh preexec** (`adapters/bash_adapter.sh`, `adapters/zsh_adapter.zsh`) — deprecated stubs; run `sm migrate-to-autocomplete`
+### Analysis pipeline
 
-### Install
+Defined in `shellmate/orchestration/analysis_graph.py` (LangGraph `StateGraph`):
 
-```bash
-sm init                 # wizard: keys + hooks
-sm init --install-hooks # hooks only (skip keys / ble install prompts as needed)
+```mermaid
+flowchart TD
+    START([start]) --> sanitize --> parse --> command_chain --> rules --> cache
+    cache -->|early exit| format
+    cache -->|needs AI| supervisor
+    supervisor -->|gather context| context_worker
+    supervisor -->|env only| env_context
+    context_worker --> risk_analyzer
+    env_context --> risk_analyzer
+    risk_analyzer --> consequence_builder --> remediation --> command_guide --> format
+    format --> query
+    query --> END([end])
 ```
 
-`sm install` / `sm uninstall` remain available for dry-run RC edits; prefer `sm init` for autocomplete setup.
+| Node | Role |
+|------|------|
+| `sanitize` / `parse` | Typo / syntax checks; tokenize |
+| `command_chain` | Multi-step / chain pattern detection |
+| `rules` | YAML rules under `shellmate/rules/definitions/` |
+| `cache` | Exact-match in-memory cache (no FAISS) |
+| `supervisor` | Groq (or heuristic) decides context needs |
+| `context_worker` / `env_context` | Parallel agent queries or env-only path |
+| `risk_analyzer` | Groq risk assessment |
+| `consequence_builder` | Structured consequence preview |
+| `remediation` | OpenRouter safer alternatives |
+| `command_guide` | Groq “what you meant” guide |
+| `format` / `query` | Final payload; optional `[?…]` query handling |
 
-### Dry-run mode
+**Early exits** (skip AI): sanitizer correction, high-confidence rule match, cache hit.
 
-```bash
-sm install --dry-run
-sm uninstall --dry-run
-```
+### Agents (daemon)
 
-Shows what would be done without modifying files.
+Started with `sm enable`:
 
-### Usage
+| Agent | Purpose |
+|-------|---------|
+| Watcher | OS, shell, git, tech-stack snapshot |
+| Librarian | Project file index + search |
+| Environment | Environment / staging signals |
+| CommandChain | Chain-pattern analysis |
+| Query | Answers `[?…]` queries |
 
-With the daemon enabled, typing shows inline risk annotations. Catastrophic commands require confirmation before Enter. Use query syntax for what-if questions:
+Repomix-style pack search runs alongside Librarian in the context worker when needed.
 
-```bash
-rm -rf /tmp/build [?what-if]
-```
+### Providers
 
+| Stage | Default | Fallback |
+|-------|---------|----------|
+| Supervisor / risk / guide | Groq | Grok (xAI) / heuristic |
+| Remediation | OpenRouter | Grok (xAI) / Groq guide / generic text |
+
+Configure **at least one** of Groq, OpenRouter, or Grok (xAI). Groq covers risk analysis, supervisor routing, and command guide; OpenRouter covers remediation; xAI can cover both risk and remediation. Instant catastrophic gating still uses local rules either way.
 ## Configuration
 
-### Directory Locations
+### Directories
 
-| Purpose | Linux/macOS | Windows |
-|---------|-------------|---------|
-| Config (`config.yaml`, `.env`) | `$XDG_CONFIG_HOME/shellmate` or `~/.config/shellmate` | `%APPDATA%\ShellMate` |
-| State (sessions, logs) | `$XDG_STATE_HOME/shellmate` or `~/.local/state/shellmate` | `%LOCALAPPDATA%\ShellMate` |
-| Cache (FAISS vectors) | `$XDG_CACHE_HOME/shellmate` or `~/.cache/shellmate` | `%LOCALAPPDATA%\ShellMate\cache` |
-| Logs | `~/.local/state/shellmate/logs` | `%LOCALAPPDATA%\ShellMate\logs` |
-| Sessions | `~/.local/state/shellmate/sessions` | `%LOCALAPPDATA%\ShellMate\sessions` |
+| Purpose | Linux / macOS | Windows |
+|---------|---------------|---------|
+| Config + `.env` | `~/.config/shellmate` | `%APPDATA%\ShellMate` |
+| State / sessions / logs | `~/.local/state/shellmate` | `%LOCALAPPDATA%\ShellMate` |
+| Cache dir | `~/.cache/shellmate` | `%LOCALAPPDATA%\ShellMate\cache` |
+| Installed adapters | `~/.shellmate/adapters/` | `%USERPROFILE%\.shellmate\adapters\` |
 
-### Credentials
+Credentials file: `<config_dir>/.env` (permissions restricted on Unix).
 
-API keys are stored in `<config_dir>/.env` with file permissions `600` (Unix) or equivalent restricted access (Windows).
+### Environment variables
 
-Supported keys:
-- `GROQ_API_KEY` — for AI risk analysis (get at https://console.groq.com/keys)
-- `GROQ_SUPERVISOR_MODEL` — fast model for routing + command guide (default: `llama-3.1-8b-instant`)
-- `OPENROUTER_API_KEY` — for AI remediation (get at https://openrouter.ai/keys)
-- `CONTEXT7_API_KEY` — for documentation lookup (optional)
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `GROQ_API_KEY` | At least one of Groq / OpenRouter / xAI | Risk analysis, supervisor, command guide |
+| `OPENROUTER_API_KEY` | At least one of Groq / OpenRouter / xAI | Remediation alternatives |
+| `XAI_API_KEY` | At least one of Groq / OpenRouter / xAI | Risk analysis and remediation via Grok |
+| `CONTEXT7_API_KEY` | No | Optional docs lookup |
+| `GROQ_SUPERVISOR_MODEL` | No | Override supervisor model (default `llama-3.1-8b-instant`) |
+| `XAI_MODEL` | No | Override Grok model (default `grok-3-mini`) |
 
-### Configuration File
-
-`<config_dir>/config.yaml` — YAML file overriding defaults from `config/defaults.py`.
-
-## Migration from v1
-
-ShellMate v2.0 is **not backward-compatible** with v1. Key changes:
-
-- v1 used a single-shot analysis pipeline; v2 uses a session-based daemon with LangGraph orchestration
-- `sm -a <command>` replaces v1's quoting requirements — everything after `-a` is the command verbatim
-- `sm enable` / `sm disable` replaces v1's manual daemon management
-- Context gathering (Watcher + Librarian) is now automatic and orchestrated by LangGraph
-- Shell adapters are installed via `sm install` / `sm uninstall` instead of manual sourcing
-- Configuration paths follow XDG/AppData conventions (see table above)
-
-## MVP Limitations
-
-ShellMate v2.0 MVP is focused on core safety analysis. Known limitations:
-
-- **Single session**: One daemon per project directory; not multi-session
-- **No persistent index**: File index is rebuilt on each `sm enable` (5000-file cap)
-- **No fuzzy search**: Keyword-based librarian search only; no embeddings for file content
-- **No plugin system**: Third-party agents and rules are not supported yet
-- **Deterministic fallback only**: When AI providers are unavailable, fallback is rule-based (no graceful degradation to simpler models)
-- **No macOS CI runner**: CI tested on Linux and Windows only
-- **No Unix domain socket**: IPC uses TCP on 127.0.0.1 (no Unix socket transport)
-
-## Post-MVP Parking Lot
-
-Features planned after the 2.0.0 MVP release:
-
-- Persistent index with smart invalidation
-- Multi-session / multi-directory daemon
-- User plugin API and dynamic third-party agents
-- `/deep-research`, `sm research`
-- Fuzzy / semantic search and embeddings
-- `sm providers` — interactive provider management
-- IDE integrations and collaboration features
-- macOS CI runner
-- Continuous performance benchmarks
-- JSON Schema validation for IPC contracts
-- Optional Unix domain socket IPC transport
-- System keychain storage for API keys
-
-## Changelog
-
-### 2.0.0 (MVP) — 2026-06-09
-
-- **LangGraph orchestration**: Replaced legacy asyncio pipeline with `StateGraph` (10 nodes: sanitize, parse, rules, cache, supervisor, context_worker, risk_analyzer, remediation, command_guide, format)
-- **Multi-agent context**: Watcher (OS/shell/git/tech-stack) + Librarian (file index + Repomix) agents run in parallel with 500ms timeout
-- **Deterministic early exits**: Sanitizer corrections, rule matches (>=90% confidence), and cache hits bypass AI providers
-- **Rich terminal UI**: Startup progress bar, color-coded analysis results, status tables, error panels with next-steps
-- **Shell adapters**: Bash, Zsh, PowerShell hooks with CRITICAL confirmation prompts and `/s`/`/a` prefix commands
-- **IPC security**: Session/owner validation on all incoming requests; payload size limits; structured error responses
-- **Secret redaction**: 10 regex patterns redact API keys, tokens, passwords, SSH keys, and emails from context and logs
-- **Config management**: XDG/AppData paths, YAML config with dotted-notation CLI, `.env` credential storage with restricted permissions
-- **Provider fallback**: Groq/OpenRouter outages fall back to deterministic rule-based output
-- **390+ tests**: Unit, integration, and E2E tests (225 unit passing, 0 failures with credential isolation)
-
-## Testing
-
-```bash
-# Unit tests
-python -m pytest tests/unit/ -q
-
-# Enrichment tests (Phase 6)
-# See docs/agent-enrichment-plan/tasks.md for detailed test matrix
-python -m pytest tests/unit/test_analysis_graph.py tests/unit/test_groq_supervisor.py tests/unit/test_groq_command_guide.py tests/unit/test_ui.py -q
-```
-
-### Manual smoke checklist
-
-```
-sm enable          → Rich panel with ASCII + checklist
-sm -a git status   → spinner (non-quiet) + analysis
-sm -a git cherry-pick abc123 → command guide section (when GROQ_API_KEY set)
-sm -a echo hi --quiet → JSON only, no spinner
-```
+Optional YAML overrides live in `<config_dir>/config.yaml`.
 
 ## Requirements
 
 - Python 3.10+
-- Groq API key (for AI risk analysis)
-- OpenRouter API key (for AI remediation)
+- ble.sh (Linux/WSL) or PowerShell + PSReadLine (Windows)
+- At least one of `GROQ_API_KEY`, `OPENROUTER_API_KEY`, or `XAI_API_KEY` (Groq + OpenRouter recommended for full risk + remediation)
 
-### Dependencies
+### Dependencies (authoritative: `pyproject.toml`)
 
-- `click>=8.1.0`, `rich>=13.0.0`, `pyyaml>=6.0` — CLI and UI
-- `langgraph>=1.2.0`, `langchain-core>=1.4.0` — Orchestration
-- `groq>=0.4.0`, `openai>=1.0.0` — AI providers
-- `aiohttp>=3.9.0` — Async HTTP
-- `psutil>=5.9.0`, `watchdog>=4.0.0` — Runtime monitoring
+- `click`, `rich`, `pyyaml` — CLI / UI
+- `langgraph`, `langchain-core` — orchestration
+- `groq`, `openai`, `aiohttp` — providers
+- `psutil`, `watchdog` — runtime monitoring
+- `numpy` — declared runtime dependency
+
+## Development
+
+```bash
+git clone https://github.com/sayan-does/shellmate.git
+cd shellmate
+pip install -e ".[dev]"
+python -m build
+```
+
+CI builds and smoke-tests the wheel on Python 3.10–3.12. Publishing runs on `v*` tags via Trusted Publishing (`.github/workflows/publish.yml`).
 
 ## License
 

@@ -1,11 +1,16 @@
 import os
-from .base import ProviderError, format_provider_failure, wrap_provider_exception
+from .base import ProviderError, format_provider_failure, wrap_provider_exception, credential_key_for
 from .groq_provider import GroqProvider
 from .openrouter_provider import OpenRouterProvider
+from .xai_provider import XaiProvider
 from shellmate.config.credentials import load_env
 
 _groq_provider = None
 _openrouter_provider = None
+_xai_provider = None
+
+_RISK_CAPABLE = ("groq", "xai")
+_REMEDIATION_CAPABLE = ("openrouter", "xai")
 
 
 def _inject_env():
@@ -31,45 +36,135 @@ def get_openrouter_provider():
     return _openrouter_provider
 
 
-async def analyze_risk(command, context=None):
-    groq = get_groq_provider()
+def get_xai_provider():
+    global _xai_provider
+    _inject_env()
+    if _xai_provider is None:
+        _xai_provider = XaiProvider()
+    return _xai_provider
+
+
+def _provider_instance(name: str):
+    if name == "groq":
+        return get_groq_provider()
+    if name == "openrouter":
+        return get_openrouter_provider()
+    if name == "xai":
+        return get_xai_provider()
+    return None
+
+
+def _role_primary(role: str, default: str) -> str:
     try:
-        return await groq.analyze_risk(command, context)
-    except ProviderError as e:
-        err = wrap_provider_exception(e, "groq")
-        return {
-            "risk": "MEDIUM",
-            "confidence": 0.5,
-            "reason": format_provider_failure("groq", err, purpose="AI analysis"),
-            "provider": "fallback",
-            "model": "deterministic",
-            "failed_provider": "groq",
-            "failed_credential": "GROQ_API_KEY",
-        }
+        from shellmate.config import get_config
+        cfg = get_config()
+        primary = (cfg.get("providers") or {}).get(role, {}).get("primary") or default
+        return str(primary).lower()
+    except Exception:
+        return default
+
+
+def _apply_role_model(provider, role: str) -> None:
+    try:
+        from shellmate.config import get_config
+        model = (get_config().get("providers") or {}).get(role, {}).get("model")
+        if not model:
+            return
+        if hasattr(provider, "model"):
+            provider.model = model
+        elif hasattr(provider, "primary_model"):
+            provider.primary_model = model
+    except Exception:
+        pass
+
+
+def _risk_provider_order() -> list:
+    primary = _role_primary("risk_analysis", "groq")
+    order = []
+    if primary in _RISK_CAPABLE:
+        order.append(primary)
+    for name in _RISK_CAPABLE:
+        if name not in order:
+            order.append(name)
+    return order
+
+
+def _remediation_provider_order() -> list:
+    primary = _role_primary("remediation", "openrouter")
+    order = []
+    if primary in _REMEDIATION_CAPABLE:
+        order.append(primary)
+    for name in _REMEDIATION_CAPABLE:
+        if name not in order:
+            order.append(name)
+    return order
+
+
+async def analyze_risk(command, context=None):
+    last_err = None
+    last_provider = "groq"
+
+    for name in _risk_provider_order():
+        provider = _provider_instance(name)
+        if provider is None or not provider.is_available():
+            continue
+        last_provider = name
+        try:
+            _apply_role_model(provider, "risk_analysis")
+            return await provider.analyze_risk(command, context)
+        except ProviderError as e:
+            last_err = wrap_provider_exception(e, name)
+            continue
+        except NotImplementedError:
+            continue
+
+    err = last_err or ProviderError("No risk analysis provider available", last_provider)
+    return {
+        "risk": "MEDIUM",
+        "confidence": 0.5,
+        "reason": format_provider_failure(last_provider, err, purpose="AI analysis"),
+        "provider": "fallback",
+        "model": "deterministic",
+        "failed_provider": last_provider,
+        "failed_credential": credential_key_for(last_provider),
+    }
 
 
 async def generate_remediation(command, risk, context=None):
-    openrouter = get_openrouter_provider()
-    try:
-        return await openrouter.generate_remediation(command, risk, context)
-    except ProviderError as e:
-        err = wrap_provider_exception(e, "openrouter")
-        groq_guide = await _remediation_from_command_guide(command, risk, context)
-        if groq_guide:
-            groq_guide["openrouter_error"] = format_provider_failure(
-                "openrouter", err, purpose="Remediation"
-            )
-            return groq_guide
-        return {
-            "explanation": format_provider_failure("openrouter", err, purpose="Remediation")
-            + " "
-            + risk.get("message", risk.get("reason", "Command may be dangerous.")),
-            "alternatives": ["Review the command carefully before executing."],
-            "provider": "fallback",
-            "model": "deterministic",
-            "failed_provider": "openrouter",
-            "failed_credential": "OPENROUTER_API_KEY",
-        }
+    last_err = None
+    last_provider = "openrouter"
+
+    for name in _remediation_provider_order():
+        provider = _provider_instance(name)
+        if provider is None or not provider.is_available():
+            continue
+        last_provider = name
+        try:
+            _apply_role_model(provider, "remediation")
+            return await provider.generate_remediation(command, risk, context)
+        except ProviderError as e:
+            last_err = wrap_provider_exception(e, name)
+            continue
+        except NotImplementedError:
+            continue
+
+    err = last_err or ProviderError("No remediation provider available", last_provider)
+    groq_guide = await _remediation_from_command_guide(command, risk, context)
+    if groq_guide:
+        groq_guide["openrouter_error"] = format_provider_failure(
+            last_provider, err, purpose="Remediation"
+        )
+        return groq_guide
+    return {
+        "explanation": format_provider_failure(last_provider, err, purpose="Remediation")
+        + " "
+        + risk.get("message", risk.get("reason", "Command may be dangerous.")),
+        "alternatives": ["Review the command carefully before executing."],
+        "provider": "fallback",
+        "model": "deterministic",
+        "failed_provider": last_provider,
+        "failed_credential": credential_key_for(last_provider),
+    }
 
 
 async def _remediation_from_command_guide(command, risk, context=None):
@@ -106,11 +201,14 @@ async def close_providers():
         await _groq_provider.close()
     if _openrouter_provider is not None:
         await _openrouter_provider.close()
+    if _xai_provider is not None:
+        await _xai_provider.close()
 
 
 def get_provider_status():
     groq = get_groq_provider()
     openrouter = get_openrouter_provider()
+    xai = get_xai_provider()
 
     return {
         "groq": {
@@ -123,5 +221,11 @@ def get_provider_status():
             "status": "available" if openrouter.is_available() else "not_configured",
             "credential": "OPENROUTER_API_KEY",
             "fallback_models": openrouter.fallback_models,
+        },
+        "xai": {
+            "configured": xai.is_available(),
+            "status": "available" if xai.is_available() else "not_configured",
+            "credential": "XAI_API_KEY",
+            "model": xai.model,
         },
     }

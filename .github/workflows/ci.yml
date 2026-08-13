@@ -51,3 +51,25 @@ jobs:
           name: python-package-distributions
           path: dist/
           retention-days: 7
+
+  e2e-offline:
+    name: Package e2e (offline)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dev dependencies
+        run: pip install --upgrade pip build ".[dev]"
+
+      - name: Run offline package e2e tests
+        run: pytest tests/e2e_package -m "not requires_api and not slow" -v --tb=short
