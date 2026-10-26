@@ -39,6 +39,8 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = ["build", "twine", "pytest", "pytest-asyncio"]
+# Windows interactive-adapter test harness (Series F ConPTY automation)
+windows-test = ["pywinpty>=2.0.0; sys_platform == 'win32'", "pyte>=0.8.1"]
 
 [project.urls]
 Homepage = "https://github.com/sayan-does/shellmate"
