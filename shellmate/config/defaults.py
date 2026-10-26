@@ -24,7 +24,7 @@ def get_default_config():
         "providers": {
             "risk_analysis": {
                 "primary": "groq",
-                "model": "llama-3.3-70b-versatile",
+                "model": "qwen/qwen3.8-27b",
                 "fallback": None,
             },
             "remediation": {
@@ -48,11 +48,11 @@ def get_default_config():
             "backup_count": 5,
         },
         "supervisor": {
-            "model": os.environ.get("GROQ_SUPERVISOR_MODEL", "llama-3.1-8b-instant"),
+            "model": os.environ.get("GROQ_SUPERVISOR_MODEL", "qwen/qwen3.8-27b"),
             "timeout_ms": 500,
         },
         "command_guide": {
-            "model": os.environ.get("GROQ_COMMAND_GUIDE_MODEL", "llama-3.1-8b-instant"),
+            "model": os.environ.get("GROQ_COMMAND_GUIDE_MODEL", "qwen/qwen3.8-27b"),
             "timeout_ms": int(os.environ.get("GROQ_COMMAND_GUIDE_TIMEOUT_MS", "2000")),
         },
         "plugins": {

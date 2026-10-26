@@ -15,7 +15,7 @@ class ShellMatePredictor : System.Management.Automation.Subsystem.Prediction.ICo
 
     [bool] CanAcceptFeedback(
         [System.Management.Automation.Subsystem.Prediction.PredictionClient] $client,
-        [System.Management.Automation.Subsystem.Prediction.PredictionFeedbackKind] $feedback
+        [System.Management.Automation.Subsystem.Prediction.PredictorFeedbackKind] $feedback
     ) { return $false }
 
     [void] OnSuggestionDisplayed(

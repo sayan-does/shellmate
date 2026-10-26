@@ -76,7 +76,7 @@ async def generate_command_guide(
     if timeout_ms is None:
         timeout_ms = float(os.environ.get("GROQ_COMMAND_GUIDE_TIMEOUT_MS", "2000"))
 
-    model = model or os.environ.get("GROQ_COMMAND_GUIDE_MODEL", "llama-3.1-8b-instant")
+    model = model or os.environ.get("GROQ_COMMAND_GUIDE_MODEL", "qwen/qwen3.8-27b")
     client = AsyncGroq(api_key=api_key)
     ctx = f"\n\nContext:\n{context}" if context else ""
     risk_ctx = f"\nAnalysis note: {risk_reason}" if risk_reason else ""

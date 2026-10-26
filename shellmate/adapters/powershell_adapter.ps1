@@ -298,7 +298,10 @@ $canPredict = (
 if ($canPredict) {
     $predictorFile = Join-Path $PSScriptRoot "powershell_predictor.ps1"
     if (Test-Path $predictorFile) {
-        . $predictorFile
+        # Guard against predictor load/compile failures (e.g. prediction-API
+        # drift across PS builds) so the adapter still loads and the Tab
+        # ghost-text fallback below can engage instead of spewing errors.
+        try { . $predictorFile } catch { Write-Verbose "ShellMate: predictor load failed: $_" }
     }
 }
 

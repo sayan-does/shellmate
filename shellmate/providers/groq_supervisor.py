@@ -48,7 +48,7 @@ async def route_command(
     if not api_key:
         raise SupervisorError("GROQ_API_KEY not set")
 
-    model = model or os.environ.get("GROQ_SUPERVISOR_MODEL", "llama-3.1-8b-instant")
+    model = model or os.environ.get("GROQ_SUPERVISOR_MODEL", "qwen/qwen3.8-27b")
     client = AsyncGroq(api_key=api_key)
     prompt = SUPERVISOR_PROMPT.format(command=command)
 

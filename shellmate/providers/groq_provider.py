@@ -49,7 +49,7 @@ class GroqProvider(AIProvider):
     def __init__(self):
         self.api_key = os.environ.get("GROQ_API_KEY")
         self.client = None
-        self.model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+        self.model = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
 
     def _ensure_client(self):
         if not self.api_key:

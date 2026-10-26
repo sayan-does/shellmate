@@ -276,7 +276,7 @@ Credentials file: `<config_dir>/.env` (permissions restricted on Unix).
 | `OPENROUTER_API_KEY` | At least one of Groq / OpenRouter / xAI | Remediation alternatives |
 | `XAI_API_KEY` | At least one of Groq / OpenRouter / xAI | Risk analysis and remediation via Grok |
 | `CONTEXT7_API_KEY` | No | Optional docs lookup |
-| `GROQ_SUPERVISOR_MODEL` | No | Override supervisor model (default `llama-3.1-8b-instant`) |
+| `GROQ_SUPERVISOR_MODEL` | No | Override supervisor model (default `qwen/qwen3.8-27b`) |
 | `XAI_MODEL` | No | Override Grok model (default `grok-3-mini`) |
 
 Optional YAML overrides live in `<config_dir>/config.yaml`.
