@@ -1,7 +1,7 @@
 import os
 
 import click
-from shellmate.daemon.lifecycle import start_daemon
+from shellmate.daemon.lifecycle import start_daemon, print_provider_warnings
 from shellmate.daemon.startup_ui import run_startup_ui
 
 
@@ -24,7 +24,10 @@ def enable():
     # Spawn without waiting — Live scene polls stages as the daemon boots.
     if start_daemon(wait_ready=False):
         ok = run_startup_ui(timeout=30)
-        if not ok:
+        if ok:
+            # wait_ready=False skips start_daemon's own warning print; relay it here.
+            print_provider_warnings()
+        else:
             click.echo("Daemon may still be starting. Run 'sm status' to check.")
 
 

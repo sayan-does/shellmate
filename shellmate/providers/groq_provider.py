@@ -111,3 +111,17 @@ class GroqProvider(AIProvider):
 
     def is_available(self) -> bool:
         return bool(self.api_key)
+
+    async def list_available_models(self) -> Optional[list]:
+        """Model ids this key can access, or None if the listing call fails.
+
+        Used by the daemon startup check to detect a configured model that the
+        account cannot reach (which would otherwise silently fall back to a
+        static MEDIUM rating). Never raises.
+        """
+        try:
+            self._ensure_client()
+            response = await self.client.models.list()
+            return [m.id for m in response.data]
+        except Exception:
+            return None

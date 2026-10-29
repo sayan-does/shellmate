@@ -118,6 +118,33 @@ def _wait_for_daemon_ready(pid: int, host: str, port: int, timeout: float = 15.0
     return is_process_alive(pid) and _check_port_in_use(host, port)
 
 
+def print_provider_warnings():
+    """Relay the daemon's startup provider warnings to the console.
+
+    For callers that start the daemon with wait_ready=False (the `sm enable`
+    Live-scene path), which bypasses the print inside start_daemon. Safe to call
+    once the daemon has reached ready — the check runs before the ready stage.
+    """
+    config = get_default_config()
+    _print_provider_warnings(config["daemon"]["host"], config["daemon"]["port"])
+
+
+def _print_provider_warnings(host, port):
+    """Print any non-fatal provider warnings the daemon raised at startup.
+
+    The daemon runs with its stdout discarded, so the warning is relayed to the
+    user here (the stage that sets it runs before `ready`, so status already
+    carries it by the time we land here).
+    """
+    status_data = _query_daemon_status(host, port)
+    for warning in (status_data or {}).get("provider_warnings", []) or []:
+        message = warning.get("message") if isinstance(warning, dict) else str(warning)
+        if message:
+            # Plain ASCII marker: this prints to the user's console, which may be
+            # cp1252 (classic Windows), where a unicode glyph would raise.
+            print(f"WARNING: {message}")
+
+
 def start_daemon(*, wait_ready: bool = True):
     """Spawn the ShellMate daemon.
 
@@ -190,6 +217,7 @@ def start_daemon(*, wait_ready: bool = True):
 
     if ready:
         print(f"ShellMate daemon started (PID: {process.pid})")
+        _print_provider_warnings(host, port)
     else:
         print(f"ShellMate daemon process started (PID: {process.pid}) but not yet ready.")
         print("Run 'sm status' to check the daemon state.")

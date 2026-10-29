@@ -30,6 +30,18 @@ _startup_stage = "binding_ipc"
 _startup_stages_completed: list[str] = []
 _start_time = time.time()
 _last_health_check = None
+_provider_warnings: list[dict] = []
+
+
+def get_provider_warnings():
+    """Non-fatal provider/config warnings surfaced at startup (e.g. an
+    unreachable risk model that would silently fall back to a static rating)."""
+    return list(_provider_warnings)
+
+
+def set_provider_warnings(warnings: list[dict]):
+    global _provider_warnings
+    _provider_warnings = list(warnings or [])
 
 
 def get_startup_stage():
@@ -458,6 +470,7 @@ class ShellMateDaemon:
                 "uptime_seconds": now - _start_time,
                 "last_health_check": now,
                 "daemon_pid": os.getpid(),
+                "provider_warnings": get_provider_warnings(),
             }
         }
 
@@ -563,6 +576,17 @@ def run_daemon():
         await asyncio.gather(_start_watcher(), _start_librarian(), _start_environment(), _start_command_chain(), _start_query())
 
         set_startup_stage("providers_checked")
+        # Verify the configured risk model is actually reachable. Best-effort and
+        # time-boxed so a slow/hanging provider API can never block READY.
+        try:
+            from shellmate.providers.router import check_risk_model_reachable
+            warning = await asyncio.wait_for(check_risk_model_reachable(), timeout=6.0)
+            if warning:
+                set_provider_warnings([warning])
+                logger.warning("Provider check: %s", warning.get("message"))
+        except Exception as e:
+            logger.debug(f"Risk-model reachability check skipped: {e}")
+
         set_startup_stage("ready")
 
         try:

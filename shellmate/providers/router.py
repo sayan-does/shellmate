@@ -100,6 +100,47 @@ def _remediation_provider_order() -> list:
     return order
 
 
+async def check_risk_model_reachable():
+    """Best-effort startup check: is the configured risk model actually reachable?
+
+    Returns a warning dict when a key IS configured but the resolved risk model
+    is not in the account's accessible-model list — the case where AI analysis
+    would silently degrade to a static MEDIUM fallback. Returns None when there
+    is nothing to warn about (no key, model reachable, or the check is
+    inconclusive). Never raises and never blocks daemon readiness.
+    """
+    try:
+        order = _risk_provider_order()
+        name = order[0] if order else "groq"
+        provider = _provider_instance(name)
+        # No key configured -> AI tier is intentionally offline, not a misconfig.
+        if provider is None or not provider.is_available():
+            return None
+        _apply_role_model(provider, "risk_analysis")
+        model = getattr(provider, "model", None)
+        lister = getattr(provider, "list_available_models", None)
+        if not model or lister is None:
+            return None
+        available = await lister()
+        # Could not determine (network/API error) -> stay silent, don't cry wolf.
+        if not available or model in available:
+            return None
+        return {
+            "provider": name,
+            "model": model,
+            "credential": credential_key_for(name),
+            "accessible_models": sorted(available)[:12],
+            "message": (
+                f"Configured {name} risk model '{model}' is NOT accessible with your "
+                f"{credential_key_for(name)}. AI risk analysis will silently fall back to a "
+                f"static MEDIUM rating. Set providers.risk_analysis.model in config.yaml to a "
+                f"model your key can access (see `sm status` for the accessible list)."
+            ),
+        }
+    except Exception:
+        return None
+
+
 async def analyze_risk(command, context=None):
     last_err = None
     last_provider = "groq"
