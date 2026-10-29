@@ -370,7 +370,9 @@ if (-not $script:ShellMatePredictorRegistered) {
                     $ESC = [char]27
                     $suffix = ([string]$suggestion).Substring([Math]::Min($prefix.Length, ([string]$suggestion).Length))
                     if ($suffix) {
-                        [Console]::Write("${ESC}[90m${suffix}${ESC}[0m")
+                        # Autocomplete ghost-text is a suggestion -> green (92),
+                        # matching shellmate/ui/colors.py.
+                        [Console]::Write("${ESC}[92m${suffix}${ESC}[0m")
                         [Console]::Write("${ESC}[$($suffix.Length)D")
                     }
                     return

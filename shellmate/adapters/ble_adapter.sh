@@ -331,10 +331,11 @@ print('\n'.join(get_completions(sys.argv[1])))
       _SHELLMATE_TAB_CMD="$first"
       _SHELLMATE_TAB_STATE="suggested"
       local suffix="${first#$line}"
+      # Autocomplete ghost-text is a suggestion -> green (92), per shellmate/ui/colors.py.
       if [[ -n "$suffix" ]] && type ble/canvas/put.draw &>/dev/null; then
-        ble/canvas/put.draw "\e[90m${suffix}\e[m"
+        ble/canvas/put.draw "\e[92m${suffix}\e[m"
       elif [[ -n "$suffix" ]]; then
-        printf '\e[90m%s\e[m' "$suffix" >/dev/tty
+        printf '\e[92m%s\e[m' "$suffix" >/dev/tty
         printf '\e[%dD' "${#suffix}" >/dev/tty
       fi
     fi
