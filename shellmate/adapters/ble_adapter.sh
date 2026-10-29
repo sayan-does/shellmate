@@ -107,6 +107,8 @@ print(json.dumps({
     suggested_fix=$(python3 -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('suggested_fix',''))" "$raw" 2>/dev/null)
     severity=$(python3 -c "import sys,json; d=json.loads(sys.argv[1]); print(d.get('severity','MEDIUM'))" "$raw" 2>/dev/null)
 
+    # Color scheme mirrors shellmate/ui/colors.py: caution=91 red, warning=93
+    # yellow, suggestion/safe=92 green.
     local color="\e[93m"
     [[ "$severity" == "HIGH" || "$severity" == "CRITICAL" || "$severity" == "blocking" ]] && color="\e[91m"
     [[ "$severity" == "SAFE" || "$severity" == "LOW" ]] && color="\e[92m"
@@ -114,7 +116,8 @@ print(json.dumps({
     local line1 line2 line3=""
     line1="${color}  → ${what_happens}\e[m"
     line2="${color}  → Reversible: ${reversible}  |  ${scope}\e[m"
-    [[ -n "$suggested_fix" ]] && line3="\e[90m  → Safe alt: ${suggested_fix}\e[m"
+    # A suggested fix is a suggestion -> green (92), not dim.
+    [[ -n "$suggested_fix" ]] && line3="\e[92m  → Safe alt: ${suggested_fix}\e[m"
 
     # Gate HIGH/CRITICAL on second Enter
     if [[ "$severity" == "HIGH" || "$severity" == "CRITICAL" || "$severity" == "blocking" ]]; then

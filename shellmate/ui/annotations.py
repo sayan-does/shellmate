@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from shellmate.ui import colors
+
 # Emoji mappings for risk levels (short inline / Unix terminals)
 RISK_ICONS = {
     "SAFE": "✅",
@@ -105,6 +107,7 @@ def format_consequence_annotation(
     risk: str = "MEDIUM",
     *,
     ascii_safe: bool = False,
+    color: bool = False,
 ) -> str:
     """Format annotation using structured consequence preview + badges."""
     env_context = env_context or {}
@@ -137,7 +140,12 @@ def format_consequence_annotation(
     if not consequence.get("reversible", True):
         parts.append("[IRREVERSIBLE]")
 
-    return " ".join(parts) if len(parts) > 1 else ""
+    if len(parts) <= 1:
+        return ""
+    text = " ".join(parts)
+    # Consequence severity ("blocking"/"warning"/"info") or risk level both map
+    # through SEVERITY_ROLE -> caution=red / warning=yellow / safe=green.
+    return colors.by_severity(text, severity if severity in colors.SEVERITY_ROLE else risk) if color else text
 
 
 def format_legacy_pipeline_annotation(
@@ -146,6 +154,7 @@ def format_legacy_pipeline_annotation(
     chain_patterns: Optional[Dict[str, Any]] = None,
     *,
     ascii_safe: bool = False,
+    color: bool = False,
 ) -> str:
     """Format annotation from pipeline result without consequence_preview."""
     env_context = env_context or {}
@@ -186,7 +195,10 @@ def format_legacy_pipeline_annotation(
             msg = msg[:37] + "..."
         parts.append(msg)
 
-    return " ".join(parts) if len(parts) > 1 else ""
+    if len(parts) <= 1:
+        return ""
+    text = " ".join(parts)
+    return colors.by_severity(text, risk) if color else text
 
 
 def format_pipeline_annotation(
@@ -195,6 +207,7 @@ def format_pipeline_annotation(
     chain_patterns: Optional[Dict[str, Any]] = None,
     *,
     ascii_safe: bool = False,
+    color: bool = False,
 ) -> str:
     """Prefer consequence_preview; fall back to legacy pipeline formatting."""
     consequence = risk_result.get("consequence_preview") or {}
@@ -205,13 +218,16 @@ def format_pipeline_annotation(
             chain_patterns,
             risk_result.get("risk", "MEDIUM"),
             ascii_safe=ascii_safe,
+            color=color,
         )
     return format_legacy_pipeline_annotation(
-        risk_result, env_context, chain_patterns, ascii_safe=ascii_safe
+        risk_result, env_context, chain_patterns, ascii_safe=ascii_safe, color=color
     )
 
 
-def format_cached_annotation(cached_result: Dict[str, Any], *, ascii_safe: bool = False) -> str:
+def format_cached_annotation(
+    cached_result: Dict[str, Any], *, ascii_safe: bool = False, color: bool = False
+) -> str:
     """Format a simple annotation from a cache hit payload."""
     msg = cached_result.get("explanation", "") or ""
     risk = cached_result.get("risk", "MEDIUM")
@@ -229,4 +245,7 @@ def format_cached_annotation(cached_result: Dict[str, Any], *, ascii_safe: bool 
 
     if len(msg) > 50:
         msg = msg[:47] + "..."
-    return f"{icon} {msg}" if msg else ""
+    if not msg:
+        return ""
+    text = f"{icon} {msg}"
+    return colors.by_severity(text, risk) if color else text

@@ -70,11 +70,13 @@ function Show-ShellMateConsequence {
              elseif ($Severity -in @("SAFE","LOW")) { "${ESC}[92m" } `
              else { "${ESC}[93m" }
     $reset = "${ESC}[0m"
-    $dim   = "${ESC}[90m"
+    # Color scheme mirrors shellmate/ui/colors.py: caution=91 red, warning=93
+    # yellow, suggestion/safe=92 green. A suggested fix is a suggestion -> green.
+    $green = "${ESC}[92m"
 
     $line1 = "${color}  -> ${WhatHappens}${reset}"
     $line2 = "${color}  -> Reversible: ${Reversible}  |  ${Scope}${reset}"
-    $line3 = if ($SuggestedFix) { "${dim}  -> Safe alt: ${SuggestedFix}${reset}" } else { "" }
+    $line3 = if ($SuggestedFix) { "${green}  -> Safe alt: ${SuggestedFix}${reset}" } else { "" }
 
     # Save cursor, write 3 lines below prompt, restore
     [Console]::Write("${ESC}[s")
