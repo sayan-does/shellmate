@@ -89,6 +89,9 @@ if ($py -and (Test-Path $client)) {
             $predictor
         )
         Set-PSReadLineOption -PredictionSource Plugin -PredictionViewStyle InlineView -ErrorAction SilentlyContinue
+        # Render predictions green — they are suggestions (mirrors shellmate/ui/colors.py).
+        $smEsc = [char]27
+        Set-PSReadLineOption -Colors @{ InlinePrediction = "${smEsc}[92m" } -ErrorAction SilentlyContinue
         $script:ShellMatePredictorRegistered = $true
     } catch {
         Write-Verbose "ShellMate: predictor registration failed: $_"
