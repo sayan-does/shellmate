@@ -1,4 +1,4 @@
-# 🐢 ShellMate
+# ShellMate
 
 **A friendly safety net for your terminal.**
 
@@ -26,22 +26,22 @@ $ git push --force
 
 ---
 
-## ✨ Why you'll like it
+## Why you'll like it
 
-- 🛑 **Stops the scary stuff.** Genuinely dangerous commands (like `rm -rf /`) are
+- **Stops the scary stuff.** Genuinely dangerous commands (like `rm -rf /`) are
   caught instantly and ask you to confirm before they run.
-- 💬 **Explains commands in plain English.** No more guessing what a command does —
+- **Explains commands in plain English.** No more guessing what a command does —
   ShellMate tells you what will happen and whether you can undo it.
-- 🧭 **Suggests safer alternatives.** When there's a gentler way to do the same thing,
+- **Suggests safer alternatives.** When there's a gentler way to do the same thing,
   it offers it.
-- ⌨️ **Autocomplete that helps you learn.** Press Tab for suggestions as you type.
-- 🙌 **Stays out of your way.** Safe commands run normally — no pop-ups, no nagging.
-- 🔒 **You stay in control.** ShellMate only *shows* you things. It never executes
+- **Autocomplete that helps you learn.** Press Tab for suggestions as you type.
+- **Stays out of your way.** Safe commands run normally — no pop-ups, no nagging.
+- **You stay in control.** ShellMate only *shows* you things. It never executes
   commands on its own.
 
 ---
 
-## 🚀 Get started in 3 steps
+## Get started in 3 steps
 
 ### 1. Install it
 
@@ -71,7 +71,7 @@ sm enable     # starts the helper in the background
 ```
 
 Now just **use your terminal normally.** Little notes will appear under your
-commands as you type. 🎉
+commands as you type.
 
 > **What you need:** Python 3.10+, and either **Windows PowerShell** or, on
 > **Linux/WSL**, [ble.sh](https://github.com/akinomyoga/ble.sh). ShellMate sets up
@@ -79,7 +79,7 @@ commands as you type. 🎉
 
 ---
 
-## 👀 What it feels like to use
+## What it feels like to use
 
 As you type, ShellMate shows a tiny note under your command:
 
@@ -98,7 +98,7 @@ many people from a bad day.
 
 ---
 
-## 🧰 Everyday commands
+## Everyday commands
 
 These are the only commands you need day to day:
 
@@ -113,7 +113,7 @@ These are the only commands you need day to day:
 
 ---
 
-## 🔒 A note on your privacy
+## A note on your privacy
 
 Being honest about how it works:
 
@@ -127,7 +127,7 @@ Being honest about how it works:
 
 ---
 
-## 🆘 Troubleshooting
+## Troubleshooting
 
 - **"I don't see any notes."** Run `sm status` to confirm the daemon is running, and
   make sure you ran `sm enable`. On a brand-new install, open a fresh terminal so the
@@ -141,7 +141,7 @@ Being honest about how it works:
 ---
 
 <details>
-<summary>🔧 <b>Under the hood</b> (for the curious / power users)</summary>
+<summary><b>Under the hood</b> (for the curious / power users)</summary>
 
 ### How it works
 
