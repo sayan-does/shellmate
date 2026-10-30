@@ -226,7 +226,7 @@ def _setup_api_keys():
     )
 
     if not _confirm("Configure API keys now?", default=True):
-        _echo("Skipped. Run 'shellmate configure' later.")
+        _echo("Skipped. Run 'sm config' later.")
         return
 
     env = load_env()

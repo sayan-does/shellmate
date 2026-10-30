@@ -484,13 +484,6 @@ class LibrarianAgent(Agent):
     def is_indexed(self) -> bool:
         return self._ready
 
-    async def wait_until_indexed(self, timeout: Optional[float] = None) -> bool:
-        try:
-            await asyncio.wait_for(self._index_ready.wait(), timeout=timeout)
-            return True
-        except asyncio.TimeoutError:
-            return False
-
 
 _librarian_agent: Optional[LibrarianAgent] = None
 

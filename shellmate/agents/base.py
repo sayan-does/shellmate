@@ -171,20 +171,59 @@ class AgentManager:
     def __init__(self):
         self._agents: Dict[str, Agent] = {}
         self._running = False
+        self._start_tasks: Dict[str, asyncio.Task] = {}
 
     def register(self, agent: Agent) -> None:
         self._agents[agent.name] = agent
 
+    def ensure_started(self, name: str) -> Optional[Agent]:
+        """Lazily start an agent exactly once, without blocking the caller.
+
+        The agent's ``start()`` runs as a background task and the agent is
+        returned immediately. Callers treat a not-yet-ready agent as empty
+        context — ``send_request`` already returns a graceful "not ready"
+        response until ``initialize()`` completes. This is the shared
+        non-blocking warm-up seam used by daemon startup and (later) by
+        off-hot-path consumers, so ``ready`` never waits on agent warm-up.
+
+        Idempotent: this method is synchronous, so the task-exists check and
+        assignment cannot interleave — concurrent callers never double-start.
+        """
+        agent = self._agents.get(name)
+        if agent is None:
+            return None
+        if name not in self._start_tasks:
+            self._start_tasks[name] = asyncio.create_task(self._safe_start(agent))
+        return agent
+
+    async def _safe_start(self, agent: Agent) -> None:
+        try:
+            await agent.start()
+        except Exception as e:
+            # A failing agent must never take down the daemon; mark it ERROR so
+            # `sm status` can distinguish "crashed" from "still warming".
+            agent._status = AgentStatus.ERROR
+            logger.error(f"Agent {agent.name} failed to start: {e}", exc_info=True)
+
+    async def wait_started(self, name: str, timeout: Optional[float] = None) -> None:
+        """Await a start() previously kicked off by ensure_started.
+
+        Best-effort and never raises — used by tests and optional milestone
+        reporting, not by the hot path.
+        """
+        task = self._start_tasks.get(name)
+        if task is None:
+            return
+        try:
+            if timeout is not None:
+                await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+            else:
+                await task
+        except Exception:
+            pass
+
     def get(self, name: str) -> Optional[Agent]:
         return self._agents.get(name)
-
-    async def start_all(self) -> None:
-        if self._running:
-            return
-        self._running = True
-        for agent in self._agents.values():
-            await agent.start()
-        logger.info("All agents started")
 
     async def stop_all(self) -> None:
         if not self._running:

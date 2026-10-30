@@ -115,4 +115,4 @@ def configure(show):
     else:
         click.echo()
         click.echo("  " + click.style("No keys configured.", bold=True) + " AI features will use fallback mode.")
-        click.echo("  Run " + click.style("shellmate configure", bold=True) + " anytime to set them up.")
+        click.echo("  Run " + click.style("sm config", bold=True) + " anytime to set them up.")

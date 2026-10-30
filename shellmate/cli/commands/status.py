@@ -29,3 +29,10 @@ def status():
         console=console,
         plain=factory.is_plain(),
     )
+
+    # Surface any non-fatal provider warnings (e.g. an unreachable risk model
+    # that would silently fall back to a static rating) on every status call.
+    for warning in daemon_status.get("provider_warnings", []) or []:
+        message = warning.get("message") if isinstance(warning, dict) else str(warning)
+        if message:
+            console.print(f"[yellow]WARNING:[/yellow] {message}")
