@@ -8,13 +8,14 @@ from typing import Iterable, Optional
 
 
 # Canonical display order (UI labels). Daemon keys must match.
+# The daemon reports ready as soon as IPC is bound and catastrophic rules are
+# loaded; agents and the provider check warm up in the background AFTER ready
+# (surfaced via /status `agents`, not as startup stages), so they are not rows
+# here. Keeping stale agent/provider rows made the enable screen show stages
+# that never complete under a "Ready" banner.
 CANONICAL_STAGES: list[tuple[str, str]] = [
     ("binding_ipc", "Binding IPC"),
-    ("watcher_starting", "Starting Watcher"),
-    ("watcher_ready", "Watcher ready"),
-    ("librarian_scanning", "Scanning project files"),
-    ("librarian_ready", "Librarian ready"),
-    ("providers_checked", "Checking providers"),
+    ("rules_loaded", "Safety rules loaded"),
     ("ready", "Ready"),
 ]
 

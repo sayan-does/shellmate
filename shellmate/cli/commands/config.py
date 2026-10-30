@@ -51,6 +51,11 @@ def config():
         _show_config()
         return
 
+    # Accept an optional leading `set` so both `sm config KEY value` and
+    # `sm config set KEY value` work as the paste-free non-interactive path.
+    if args and args[0].lower() == "set":
+        args = args[1:]
+
     if args and not args[0].startswith("--"):
         key = args[0].upper()
         value = args[1] if len(args) > 1 else ""
@@ -120,6 +125,7 @@ def _display_config_table():
 
     console.print()
     console.print("[dim]Run 'sm config' interactively to select a provider and paste an API key.[/dim]")
+    console.print("[dim]Or set a key non-interactively (paste-free): 'sm config set <KEY> <value>'.[/dim]")
     console.print("[dim]Use 'sm config provider <role> <primary> [model]' to set provider roles.[/dim]")
     console.print("[dim]Use 'sm config --show' to view credential values (masked).[/dim]")
 
@@ -185,7 +191,10 @@ def _interactive_config():
         )
 
     changed = False
-    while True:
+    # Bounded + EOF-safe: a closed/redirected stdin or a terminal that keeps
+    # feeding input must never spin this loop forever.
+    MAX_ROUNDS = 50
+    for _ in range(MAX_ROUNDS):
         console.print()
         console.print("[bold]Add or replace an API key[/bold]")
         for i, (key, name) in enumerate(_PROVIDER_MENU, start=1):
@@ -198,8 +207,11 @@ def _interactive_config():
             console.print(f"  [cyan]{i}.[/cyan] {name}  {status}")
         console.print("  [cyan]0.[/cyan] Done")
 
-        choice = click.prompt("Select provider", default="0", show_default=True).strip()
-        if choice in ("0", "", "done", "Done", "q", "quit"):
+        try:
+            choice = click.prompt("Select provider", default="0", show_default=True).strip()
+        except (EOFError, click.Abort):
+            break
+        if choice.lower() in ("0", "", "done", "q", "quit", "exit"):
             break
 
         try:
@@ -242,12 +254,19 @@ def _prompt_and_save_key(env: dict, key: str, name: str) -> bool:
     console.print()
     console.print(Panel("\n".join(guidance_lines), border_style="dim", padding=(0, 2)))
 
-    value = click.prompt(
-        f"  Paste {label} (leave empty to cancel)",
-        default="",
-        hide_input=True,
-        show_default=False,
-    ).strip()
+    # Input is intentionally NOT hidden: hide_input=True breaks clipboard paste
+    # on Windows ConPTY and other restricted terminals (the original paste bug).
+    # The key is stored in a local .env (0o600) anyway, so masking the echo adds
+    # no real secrecy while actively breaking the primary way users enter a key.
+    try:
+        value = click.prompt(
+            f"  Paste {label} (leave empty to cancel)",
+            default="",
+            show_default=False,
+        ).strip()
+    except (EOFError, click.Abort):
+        console.print("  [dim]Cancelled[/dim]")
+        return False
     if not value:
         console.print("  [dim]Cancelled[/dim]")
         return False

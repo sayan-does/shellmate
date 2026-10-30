@@ -123,12 +123,12 @@ def _prompt_credential_setup():
     click.echo()
     click.echo("  ShellMate needs API keys for AI-powered analysis and remediation.")
     click.echo("  You can set them up now or skip and configure later with:")
-    click.echo("    " + click.style("shellmate configure", bold=True))
+    click.echo("    " + click.style("sm config", bold=True))
     click.echo()
 
     if not click.confirm(click.style("  Would you like to configure API keys now?", bold=True), default=True):
         click.echo()
-        click.echo("  You can always run " + click.style("shellmate configure", bold=True) + " later.")
+        click.echo("  You can always run " + click.style("sm config", bold=True) + " later.")
         click.echo("  Until then, ShellMate will use deterministic rule-based analysis.")
         return
 

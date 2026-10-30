@@ -16,13 +16,13 @@ MAX_REQUEST_SIZE = 1024 * 1024
 READ_TIMEOUT = 30.0
 WRITE_TIMEOUT = 30.0
 
+# Only the stages that gate request acceptance. Per-agent warm-up and the
+# provider check run in the background AFTER ready and are reported via the
+# /status `agents` map — never as startup stages (setting a stage after
+# "ready" would overwrite _startup_stage and break the readiness check).
 STARTUP_STAGES = [
     "binding_ipc",
-    "watcher_starting",
-    "watcher_ready",
-    "librarian_scanning",
-    "librarian_ready",
-    "providers_checked",
+    "rules_loaded",
     "ready",
 ]
 
@@ -462,6 +462,11 @@ class ShellMateDaemon:
         global _last_health_check
         now = time.time()
         _last_health_check = now
+        try:
+            from shellmate.agents.base import get_agent_manager
+            agents = get_agent_manager().get_status()
+        except Exception:
+            agents = {}
         return {
             "status": "ok",
             "data": {
@@ -471,6 +476,7 @@ class ShellMateDaemon:
                 "last_health_check": now,
                 "daemon_pid": os.getpid(),
                 "provider_warnings": get_provider_warnings(),
+                "agents": agents,
             }
         }
 
@@ -527,67 +533,64 @@ def run_daemon():
     daemon = ShellMateDaemon()
 
     async def main():
-        from shellmate.agents.base import get_agent_manager, AgentManager
-        from shellmate.agents.watcher import WatcherAgent
-        from shellmate.agents.librarian import LibrarianAgent
-        from shellmate.agents.environment import EnvironmentAgent
-        from shellmate.agents.command_chain import CommandChainAgent
-        from shellmate.agents.query import QueryAgent
+        # Register agents via their singleton accessors so the instance we
+        # start IS the instance every consumer (analysis_graph, context_gatherer,
+        # server handlers) later resolves through get_*_agent(). Constructing
+        # fresh instances here would warm objects nobody queries (dual-instance
+        # split), leaving agents permanently "not ready".
+        from shellmate.agents.base import get_agent_manager
+        from shellmate.agents.watcher import get_watcher_agent
+        from shellmate.agents.librarian import get_librarian_agent
+        from shellmate.agents.environment import get_environment_agent
+        from shellmate.agents.command_chain import get_command_chain_agent
+        from shellmate.agents.query import get_query_agent
+        from shellmate.rules.catastrophic_matcher import load_catastrophic_rules
 
         agent_mgr = get_agent_manager()
-        watcher = WatcherAgent()
-        librarian = LibrarianAgent()
-        environment = EnvironmentAgent()
-        command_chain = CommandChainAgent()
-        query = QueryAgent()
-
-        agent_mgr.register(watcher)
-        agent_mgr.register(librarian)
-        agent_mgr.register(environment)
-        agent_mgr.register(command_chain)
-        agent_mgr.register(query)
+        agent_mgr.register(get_watcher_agent())
+        agent_mgr.register(get_librarian_agent())
+        agent_mgr.register(get_environment_agent())
+        agent_mgr.register(get_command_chain_agent())
+        agent_mgr.register(get_query_agent())
+        # Mark the manager running so the interrupt/error paths can stop agents.
+        agent_mgr._running = True
 
         set_startup_stage("binding_ipc")
         await daemon.start()
 
-        set_startup_stage("watcher_starting")
-        set_startup_stage("librarian_scanning")
+        # Warm the instant tier (catastrophic rules) so safety matching works
+        # the moment we accept requests — no API, no index, sub-millisecond.
+        load_catastrophic_rules()
+        set_startup_stage("rules_loaded")
 
-        async def _start_watcher():
-            await watcher.start()
-            set_startup_stage("watcher_ready")
-
-        async def _start_librarian():
-            preload_embedder_async()
-            await librarian.start()
-            # Cap wait so a stuck indexer cannot block daemon READY forever
-            await librarian.wait_until_indexed(timeout=15.0)
-            set_startup_stage("librarian_ready")
-
-        async def _start_environment():
-            await environment.start()
-
-        async def _start_command_chain():
-            await command_chain.start()
-
-        async def _start_query():
-            await query.start()
-
-        await asyncio.gather(_start_watcher(), _start_librarian(), _start_environment(), _start_command_chain(), _start_query())
-
-        set_startup_stage("providers_checked")
-        # Verify the configured risk model is actually reachable. Best-effort and
-        # time-boxed so a slow/hanging provider API can never block READY.
-        try:
-            from shellmate.providers.router import check_risk_model_reachable
-            warning = await asyncio.wait_for(check_risk_model_reachable(), timeout=6.0)
-            if warning:
-                set_provider_warnings([warning])
-                logger.warning("Provider check: %s", warning.get("message"))
-        except Exception as e:
-            logger.debug(f"Risk-model reachability check skipped: {e}")
-
+        # READY now. Nothing below this line gates request acceptance: the
+        # instant tier protects immediately, and the agentic pipeline degrades
+        # gracefully to empty context until each agent warms up. This is what
+        # keeps `ready` under a second regardless of index/provider latency.
         set_startup_stage("ready")
+
+        async def _warm_up():
+            # Kick off every agent's start() without blocking; a slow/hung
+            # Librarian index can no longer delay (or fail) daemon readiness.
+            try:
+                preload_embedder_async()
+            except Exception as e:
+                logger.debug(f"Embedder preload skipped: {e}")
+            for name in ("watcher", "librarian", "environment", "command_chain", "query"):
+                agent_mgr.ensure_started(name)
+            # Verify the configured risk model is reachable. Best-effort and
+            # time-boxed; the result surfaces via /status provider_warnings
+            # (picked up by the next `sm status`), never blocking anything.
+            try:
+                from shellmate.providers.router import check_risk_model_reachable
+                warning = await asyncio.wait_for(check_risk_model_reachable(), timeout=6.0)
+                if warning:
+                    set_provider_warnings([warning])
+                    logger.warning("Provider check: %s", warning.get("message"))
+            except Exception as e:
+                logger.debug(f"Risk-model reachability check skipped: {e}")
+
+        asyncio.create_task(_warm_up())
 
         try:
             await daemon.serve()

@@ -277,7 +277,7 @@ def stop_daemon():
 def check_daemon_status():
     session = read_session()
     if session and is_process_alive(session.get("pid", 0)):
-        return {
+        result = {
             "status": "running",
             "pid": session.get("pid"),
             "cwd": session.get("cwd"),
@@ -285,6 +285,21 @@ def check_daemon_status():
             "ipc_address": session.get("ipc_address"),
             "owner": session.get("owner"),
         }
+        # Merge live daemon state so `sm status` can distinguish a warming
+        # agent (normal, degraded-at-first) from a crashed one (bug) and can
+        # surface provider warnings on every invocation, not just at enable.
+        try:
+            config = get_default_config()
+            live = _query_daemon_status(config["daemon"]["host"], config["daemon"]["port"])
+        except Exception:
+            live = None
+        if live:
+            result["startup_stage"] = live.get("startup_stage")
+            result["uptime_seconds"] = live.get("uptime_seconds")
+            result["last_health_check"] = live.get("last_health_check")
+            result["agents"] = live.get("agents")
+            result["provider_warnings"] = live.get("provider_warnings", []) or []
+        return result
     return {
         "status": "stopped",
         "pid": None,
