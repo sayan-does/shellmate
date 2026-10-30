@@ -37,8 +37,8 @@ def validate_api_key(
     """
     Ping the provider endpoint with the given API key.
 
-    Returns (ok, message). Context7 and unknown keys without live endpoints
-    return ok=True with a note that they were not live-checked.
+    Returns (ok, message). Keys without a live endpoint return ok=True with a
+    note that they were not live-checked.
     """
     if not api_key or not api_key.strip():
         return False, "API key is empty"

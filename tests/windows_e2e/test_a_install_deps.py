@@ -17,7 +17,6 @@ pytestmark = pytest.mark.windows
 _RUNTIME_IMPORTS = [
     "click",
     "yaml",          # pyyaml
-    "aiohttp",
     "groq",
     "openai",
     "langgraph",

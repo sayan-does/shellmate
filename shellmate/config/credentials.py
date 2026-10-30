@@ -29,17 +29,9 @@ CREDENTIAL_KEYS = {
         "provider": "xai",
         "live_check": True,
     },
-    "CONTEXT7_API_KEY": {
-        "label": "Context7 API Key",
-        "description": "For documentation lookup (get at https://context7.com)",
-        "doc_url": "https://context7.com",
-        "required": False,
-        "provider": "context7",
-        "live_check": False,
-    },
 }
 
-# AI providers that can power risk/remediation (excludes optional Context7)
+# AI providers that can power risk/remediation
 AI_CREDENTIAL_KEYS = ("GROQ_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY")
 
 

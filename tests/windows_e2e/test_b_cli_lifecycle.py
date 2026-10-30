@@ -78,10 +78,10 @@ def test_enable_twice_detects_existing(installed_daemon):
 
 
 def test_config_writes_env_under_appdata(installed_env, isolated_env):
-    installed_env.run_sm("config", "CONTEXT7_API_KEY", "round-trip-value", env=isolated_env)
+    installed_env.run_sm("config", "GROQ_API_KEY", "round-trip-value", env=isolated_env)
     cred = Path(isolated_env["APPDATA"]) / "ShellMate" / ".env"
     assert cred.exists(), f"credentials file not written: {cred}"
-    assert "CONTEXT7_API_KEY=round-trip-value" in cred.read_text(encoding="utf-8")
+    assert "GROQ_API_KEY=round-trip-value" in cred.read_text(encoding="utf-8")
 
 
 def test_uninstall_preserves_credentials(installed_env, isolated_env):
@@ -90,10 +90,10 @@ def test_uninstall_preserves_credentials(installed_env, isolated_env):
     profile.parent.mkdir(parents=True, exist_ok=True)
     profile.write_text("", encoding="utf-8")
 
-    installed_env.run_sm("config", "CONTEXT7_API_KEY", "keep-me", env=isolated_env)
+    installed_env.run_sm("config", "GROQ_API_KEY", "keep-me", env=isolated_env)
     install_hooks(installed_env, isolated_env)
     installed_env.run_sm("uninstall", env=isolated_env)
 
     cred = Path(isolated_env["APPDATA"]) / "ShellMate" / ".env"
     assert cred.exists()
-    assert "CONTEXT7_API_KEY=keep-me" in cred.read_text(encoding="utf-8")
+    assert "GROQ_API_KEY=keep-me" in cred.read_text(encoding="utf-8")

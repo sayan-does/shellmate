@@ -6,7 +6,6 @@ from shellmate.sanitizer.typo_detector import sanitize
 from shellmate.rules.engine import load_rules, match_rule
 from shellmate.cache.semantic_cache import cache_lookup, cache_store
 from shellmate.providers.router import analyze_risk, generate_remediation
-from documentation.context7_client import retrieve_documentation_async, should_retrieve_documentation
 from shellmate.config.defaults import get_default_config
 
 logger = logging.getLogger("shellmate.pipeline")

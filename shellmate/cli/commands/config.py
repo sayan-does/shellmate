@@ -22,7 +22,6 @@ _PROVIDER_MENU = [
     ("GROQ_API_KEY", "Groq"),
     ("OPENROUTER_API_KEY", "OpenRouter"),
     ("XAI_API_KEY", "Grok (xAI)"),
-    ("CONTEXT7_API_KEY", "Context7 (optional)"),
 ]
 
 
