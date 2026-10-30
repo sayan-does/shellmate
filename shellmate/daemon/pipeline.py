@@ -39,41 +39,6 @@ async def run_pipeline_async(command):
         )
 
 
-# Legacy pipeline removed - using graph-based analysis with FAISS cache only
-
-def _needs_context(command: str) -> bool:
-    tokens = command.split()
-    if not tokens:
-        return False
-    cmd = tokens[0].lower()
-    if cmd in ("rm", "mv", "cp", "cat", "less", "nano", "vim", "vi", "code", "open"):
-        return True
-    for token in tokens:
-        if token.startswith(("./", "../", "/", ".\\", "..\\")):
-            return True
-    if cmd in ("git", "docker", "docker-compose", "pip", "npm", "yarn", "pnpm"):
-        return True
-    return False
-
-
-def run_pipeline(command):
-    """Synchronous wrapper - deprecated, use run_pipeline_async."""
-    logger.warning("run_pipeline() is deprecated, use run_pipeline_async()")
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-    
-    if loop and loop.is_running():
-        # We're in an async context, run as a task
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, run_pipeline_async(command))
-            return future.result()
-    else:
-        return asyncio.run(run_pipeline_async(command))
-
-
 RISK_ORDER = {"SAFE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
 
 

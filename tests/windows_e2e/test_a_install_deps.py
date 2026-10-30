@@ -20,7 +20,6 @@ _RUNTIME_IMPORTS = [
     "aiohttp",
     "groq",
     "openai",
-    "numpy",
     "langgraph",
     "langchain_core",
     "rich",

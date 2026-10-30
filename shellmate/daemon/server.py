@@ -5,7 +5,6 @@ import logging.handlers
 import os
 import time
 from shellmate.config.defaults import get_default_config, SHELLMATE_DIR
-from shellmate.daemon.pipeline import run_pipeline
 from shellmate.cache.semantic_cache import preload_embedder_async
 from shellmate.daemon.pipeline import run_pipeline_async
 from shellmate.daemon.session import read_session, is_session_stale, validate_session_ownership
@@ -109,8 +108,6 @@ class ShellMateDaemon:
 
             if command == "/status":
                 result = self._handle_status()
-            elif command == "/context-gatherer":
-                result = await self._handle_context_gatherer(message)
             elif command == "/analyze-partial":
                 result = await self._handle_analyze_partial(message)
             elif command == "/instant-check":
@@ -155,36 +152,6 @@ class ShellMateDaemon:
         finally:
             writer.close()
             await writer.wait_closed()
-
-    async def _handle_context_gatherer(self, message):
-        command = message.get("command", "") or message.get("data", {}).get("command", "")
-        request_id = message.get("request_id", "unknown")
-
-        if not command:
-            return {
-                "watcher": {},
-                "librarian": {"matches": []},
-                "timed_out": [],
-                "errors": {},
-                "partial": False,
-                "latency_ms": 0,
-                "agent_latency_ms": {"watcher": 0, "librarian": 0},
-            }
-
-        try:
-            from shellmate.orchestration.analysis_graph import get_analysis_graph
-            graph = get_analysis_graph()
-            result = await graph.gather_context(command)
-            return result
-        except ImportError:
-            from shellmate.agents.context_gatherer import get_context_gatherer
-            gatherer = get_context_gatherer()
-            result = await gatherer.gather(command)
-            result["agent_latency_ms"] = {
-                "watcher": result.get("agent_latency", {}).get("watcher", 0),
-                "librarian": result.get("agent_latency", {}).get("librarian", 0),
-            }
-            return result
 
     def _handle_instant_check(self, message):
         """Instant catastrophic matcher — no API, target <5ms."""
@@ -534,8 +501,8 @@ def run_daemon():
 
     async def main():
         # Register agents via their singleton accessors so the instance we
-        # start IS the instance every consumer (analysis_graph, context_gatherer,
-        # server handlers) later resolves through get_*_agent(). Constructing
+        # start IS the instance every consumer (analysis_graph, server
+        # handlers) later resolves through get_*_agent(). Constructing
         # fresh instances here would warm objects nobody queries (dual-instance
         # split), leaving agents permanently "not ready".
         from shellmate.agents.base import get_agent_manager

@@ -32,10 +32,6 @@ def preload_embedder_async():
     pass
 
 
-def wait_for_embedder(timeout=60):
-    return True
-
-
 def clear_cache():
     with _lock:
         _store.clear()

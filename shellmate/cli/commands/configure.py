@@ -1,8 +1,6 @@
-import os
 import click
-from shellmate.config.credentials import CREDENTIAL_KEYS, load_env, save_env, get_credential_status
+from shellmate.config.credentials import CREDENTIAL_KEYS, get_credential_status
 from shellmate.config.paths import CREDENTIALS_FILE
-from shellmate.environment.detector import detect_environment
 
 
 def print_header():
@@ -57,62 +55,3 @@ def prompt_for_key(key_name, current_value):
         return ""
 
     return new_value
-
-
-@click.command()
-@click.option("--show", is_flag=True, help="Show current credential status without editing")
-def configure(show):
-    """Configure API credentials for AI providers"""
-    shell = detect_environment()["shell"]
-
-    if show:
-        print_header()
-        print_status()
-        return
-
-    env = load_env()
-
-    print_header()
-    print_status()
-
-    click.echo("  Enter your API keys below. You can skip any key by leaving it empty.")
-    click.echo()
-
-    for key_name in CREDENTIAL_KEYS:
-        current = env.get(key_name, os.environ.get(key_name, ""))
-        new_value = prompt_for_key(key_name, current)
-        env[key_name] = new_value
-
-    save_env(env)
-
-    click.echo()
-    click.echo(click.style("  ✓ Credentials saved!", fg="green"))
-
-    print_status()
-
-    has_keys = any(env.values())
-    if has_keys:
-        click.echo()
-        click.echo("  " + click.style("Next steps:", bold=True))
-        click.echo("    1. Start the daemon:  " + click.style("shellmate enable", bold=True))
-        click.echo("    2. Use Tab completion for consequence preview")
-
-        missing = [k for k in CREDENTIAL_KEYS if not env.get(k)]
-        if missing:
-            click.echo()
-            click.echo("  " + click.style("Note:", bold=True) + " Some keys are still missing. AI analysis will use fallback mode.")
-
-        shell_source = {
-            "bash": "source ~/.shellmate/.env",
-            "zsh": "source ~/.shellmate/.env",
-            "powershell": ". ~\\.shellmate\\.env",
-        }
-        src_cmd = shell_source.get(shell, "source ~/.shellmate/.env")
-        if shell == "powershell":
-            src_cmd = ". $HOME\\.shellmate\\.env"
-        click.echo(f"    3. Load credentials: {click.style(src_cmd, bold=True)}")
-        click.echo(f"    4. Or restart your shell to pick up the .env file")
-    else:
-        click.echo()
-        click.echo("  " + click.style("No keys configured.", bold=True) + " AI features will use fallback mode.")
-        click.echo("  Run " + click.style("sm config", bold=True) + " anytime to set them up.")
